@@ -375,12 +375,37 @@ def main(argv=None) -> int:
                         help="Fetch live data with TORN_API_KEY (no Telegram needed) and "
                              "print the raw payload next to the parsed snapshot, to confirm "
                              "the API field names before relying on alerts.")
+    parser.add_argument("--log-stats", metavar="PATH", default=None,
+                        help="Fetch battle stats with TORN_API_KEY, append a row to the "
+                             "CSV at PATH (with a timestamp), then exit. No Telegram needed.")
     parser.add_argument("--state", default=os.environ.get("STATE_FILE", DEFAULT_STATE_FILE),
                         help="Path to the state file (default: state.json).")
     args = parser.parse_args(argv)
 
     config = default_config()
     apply_env_overrides(config)
+
+    if args.log_stats:
+        import tier2
+        from datetime import datetime, timezone
+        api_key = os.environ.get("TORN_API_KEY")
+        if not api_key:
+            print("Missing env var: TORN_API_KEY", file=sys.stderr)
+            return 2
+        try:
+            raw = make_torn_fetcher(api_key, "battlestats,bars")("")
+        except TornApiError as e:
+            print(f"Torn API error: {e}", file=sys.stderr)
+            return 3
+        stats = tier2.parse_battlestats(raw)
+        nerve_max = _to_int((raw.get("nerve") or {}).get("maximum"))
+        ts = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        tier2.append_history(args.log_stats, ts, stats, nerve_max)
+        print(f"[stats] {ts} total={stats['total']} "
+              f"(str {stats['strength']}, def {stats['defense']}, "
+              f"spd {stats['speed']}, dex {stats['dexterity']}) "
+              f"nerve_bar={nerve_max} -> {args.log_stats}")
+        return 0
 
     if args.check:
         api_key = os.environ.get("TORN_API_KEY")

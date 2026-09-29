@@ -1,0 +1,44 @@
+name: torn-stats
+
+# Logs your battle stats to history.csv on a slow cadence and commits it,
+# so the growth dashboard has data to read. Stats move slowly, so every few
+# hours is plenty and keeps commit noise low.
+
+on:
+  schedule:
+    - cron: "23 */6 * * *"   # every 6 hours (offset minute to dodge the :00 rush)
+  workflow_dispatch: {}        # run on demand to seed the first data point
+
+permissions:
+  contents: write              # needed to commit history.csv back to the repo
+
+concurrency:
+  group: torn-stats
+  cancel-in-progress: false
+
+jobs:
+  log:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Log stats to history.csv
+        env:
+          TORN_API_KEY: ${{ secrets.TORN_API_KEY }}
+        run: python3 torn_watch.py --log-stats history.csv
+
+      - name: Commit history.csv if it changed
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add history.csv
+          if git diff --cached --quiet; then
+            echo "No change to history.csv — nothing to commit."
+          else
+            git commit -m "chore(stats): log $(date -u +%FT%TZ)"
+            git push
+          fi
