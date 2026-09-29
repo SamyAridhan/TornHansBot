@@ -1,0 +1,234 @@
+<title>Hans's Ledger</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<style>
+  /* Layout: a dark "fixer's ledger" — status tiles up top, growth curves below. */
+  :root {
+    --bg:#0e0f14; --surface:#161923; --surface-2:#1d212d;
+    --ink:#ece8df; --muted:#8b8f9e; --line:rgba(255,255,255,.07);
+    --gold:#e0b054; --gold-dim:#8a6d2f;
+    --str:#d55e00; --def:#009e73; --spd:#56b4e9; --dex:#e69f00;
+    --font-display:"Oswald","Arial Narrow",sans-serif;
+    --font-body:"IBM Plex Sans",system-ui,sans-serif;
+    --font-mono:"IBM Plex Mono",ui-monospace,monospace;
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin:0; }
+  body {
+    background:
+      radial-gradient(1200px 500px at 80% -10%, rgba(224,176,84,.06), transparent 60%),
+      var(--bg);
+    color: var(--ink); font-family: var(--font-body);
+    -webkit-font-smoothing: antialiased; line-height: 1.5;
+  }
+  .wrap { max-width: 960px; margin: 0 auto; padding-inline: 18px; padding-block: 28px 48px; }
+
+  header { display:flex; align-items:flex-end; justify-content:space-between; gap:16px; flex-wrap:wrap;
+           border-bottom:1px solid var(--line); padding-bottom:16px; margin-bottom:22px; }
+  .brand { display:flex; flex-direction:column; gap:2px; min-width:0; }
+  .brand .eyebrow { font-family:var(--font-mono); font-size:11px; letter-spacing:.22em; text-transform:uppercase; color:var(--gold); }
+  h1 { font-family:var(--font-display); font-weight:600; font-size:clamp(30px,7vw,46px); letter-spacing:.02em;
+       margin:0; text-transform:uppercase; line-height:1; }
+  .status { font-family:var(--font-mono); font-size:12px; color:var(--muted); text-align:right; }
+  .status b { color:var(--ink); font-weight:600; }
+
+  .tiles { display:grid; grid-template-columns:repeat(auto-fit,minmax(130px,1fr)); gap:12px; margin-bottom:26px; }
+  .tile { background:var(--surface); border:1px solid var(--line); border-radius:10px; padding:14px 16px; }
+  .tile.total { grid-column: 1 / -1; background:linear-gradient(180deg,var(--surface-2),var(--surface)); border-color:var(--gold-dim); }
+  .tile .k { font-family:var(--font-mono); font-size:11px; letter-spacing:.14em; text-transform:uppercase; color:var(--muted); }
+  .tile .v { font-family:var(--font-display); font-weight:600; font-size:clamp(24px,5vw,34px); font-variant-numeric:tabular-nums; margin-top:4px; }
+  .tile.total .v { font-size:clamp(38px,10vw,64px); color:var(--gold); }
+  .tile .swatch { display:inline-block; width:9px; height:9px; border-radius:2px; margin-right:7px; vertical-align:middle; }
+
+  .panel { background:var(--surface); border:1px solid var(--line); border-radius:12px; padding:18px 18px 14px; margin-bottom:18px; }
+  .panel h2 { font-family:var(--font-mono); font-size:12px; letter-spacing:.16em; text-transform:uppercase; color:var(--muted); margin:0 0 12px; font-weight:500; }
+  .chart-box { position:relative; height:260px; }
+  .legend { display:flex; flex-wrap:wrap; gap:14px; margin-top:12px; font-family:var(--font-mono); font-size:12px; color:var(--muted); }
+  .legend span { display:inline-flex; align-items:center; gap:7px; }
+
+  #loading, #empty { text-align:center; padding:48px 20px; color:var(--muted); }
+  #empty h2 { font-family:var(--font-display); color:var(--ink); text-transform:uppercase; letter-spacing:.03em; font-size:24px; margin:0 0 10px; }
+  #empty code { font-family:var(--font-mono); background:var(--surface-2); padding:2px 7px; border-radius:5px; color:var(--gold); font-size:13px; }
+  #empty ol { text-align:left; max-width:440px; margin:16px auto 0; padding-left:20px; }
+  #empty li { margin:6px 0; }
+
+  footer { margin-top:30px; padding-top:16px; border-top:1px solid var(--line);
+           font-family:var(--font-mono); font-size:11px; color:var(--muted);
+           display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; }
+  footer a { color:var(--gold); text-decoration:none; }
+  footer a:hover { text-decoration:underline; }
+  .reload { background:none; border:1px solid var(--line); color:var(--muted); font-family:var(--font-mono);
+            font-size:11px; padding:4px 10px; border-radius:6px; cursor:pointer; }
+  .reload:hover { color:var(--ink); border-color:var(--muted); }
+  :focus-visible { outline:2px solid var(--gold); outline-offset:2px; }
+</style>
+
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600&family=IBM+Plex+Sans:wght@400;600&family=IBM+Plex+Mono:wght@400;500&display=swap" />
+
+<div class="wrap">
+  <header>
+    <div class="brand">
+      <span class="eyebrow">Torn · Crime Ledger</span>
+      <h1>Hans's Ledger</h1>
+    </div>
+    <div class="status" id="status">reading the books…</div>
+  </header>
+
+  <div id="loading">Cracking the safe…</div>
+
+  <section id="empty" hidden>
+    <h2>No entries yet</h2>
+    <p>Nothing's been logged to <code>history.csv</code> so far.</p>
+    <ol>
+      <li>Go to your repo's <b>Actions</b> tab → <b>torn-stats</b> → <b>Run workflow</b>.</li>
+      <li>It records your battle stats and commits the first row.</li>
+      <li>Come back and reload — the curves start filling in.</li>
+    </ol>
+    <p style="margin-top:18px"><button class="reload" onclick="load()">Reload</button></p>
+  </section>
+
+  <section id="content" hidden>
+    <div class="tiles" id="tiles"></div>
+
+    <div class="panel">
+      <h2>Total battle stats over time</h2>
+      <div class="chart-box"><canvas id="totalChart"></canvas></div>
+    </div>
+
+    <div class="panel">
+      <h2>By stat</h2>
+      <div class="chart-box"><canvas id="breakdownChart"></canvas></div>
+      <div class="legend" id="legend"></div>
+    </div>
+  </section>
+
+  <footer>
+    <span>Source: <a id="repolink" href="#" target="_blank" rel="noopener">history.csv</a> · logged every 6h</span>
+    <button class="reload" onclick="load()">↻ Reload</button>
+  </footer>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script>
+  const COLORS = {
+    strength: getComputedStyle(document.documentElement).getPropertyValue('--str').trim(),
+    defense:  getComputedStyle(document.documentElement).getPropertyValue('--def').trim(),
+    speed:    getComputedStyle(document.documentElement).getPropertyValue('--spd').trim(),
+    dexterity:getComputedStyle(document.documentElement).getPropertyValue('--dex').trim(),
+  };
+  const GOLD  = getComputedStyle(document.documentElement).getPropertyValue('--gold').trim();
+  const INK   = getComputedStyle(document.documentElement).getPropertyValue('--ink').trim();
+  const MUTED = getComputedStyle(document.documentElement).getPropertyValue('--muted').trim();
+  const GRID  = 'rgba(255,255,255,.06)';
+  const REPO  = 'SamyAridhan/TornHansBot';
+
+  document.getElementById('repolink').href = `https://github.com/${REPO}/blob/main/history.csv`;
+
+  const $ = (id) => document.getElementById(id);
+  const nfmt = (n) => Number(n).toLocaleString('en-US');
+  let charts = [];
+
+  function parseCSV(text) {
+    const rows = text.trim().split(/\r?\n/).filter(Boolean);
+    if (rows.length < 2) return [];
+    const head = rows[0].split(',').map(s => s.trim());
+    return rows.slice(1).map(line => {
+      const cells = line.split(',');
+      const o = {};
+      head.forEach((h, i) => { o[h] = cells[i]; });
+      return o;
+    });
+  }
+
+  function labelFor(iso) {
+    const d = new Date(iso);
+    if (isNaN(d)) return iso;
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+         + ' ' + d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+  }
+
+  function baseOpts(extra = {}) {
+    return Object.assign({
+      responsive: true, maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: '#0e0f14', borderColor: GRID, borderWidth: 1,
+          titleColor: INK, bodyColor: INK, padding: 10,
+          titleFont: { family: 'IBM Plex Mono' }, bodyFont: { family: 'IBM Plex Mono' },
+          callbacks: { label: (c) => ` ${c.dataset.label}: ${nfmt(c.parsed.y)}` }
+        }
+      },
+      scales: {
+        x: { grid: { color: GRID }, ticks: { color: MUTED, font: { family: 'IBM Plex Mono', size: 10 }, maxRotation: 0, autoSkip: true, maxTicksLimit: 6 } },
+        y: { grid: { color: GRID }, ticks: { color: MUTED, font: { family: 'IBM Plex Mono', size: 10 }, callback: (v) => nfmt(v) }, beginAtZero: false }
+      }
+    }, extra);
+  }
+
+  function renderTiles(latest) {
+    const order = [
+      ['strength','Strength'], ['defense','Defense'], ['speed','Speed'], ['dexterity','Dexterity']
+    ];
+    let html = `<div class="tile total"><div class="k">Total battle stats</div><div class="v">${nfmt(latest.total)}</div></div>`;
+    for (const [key, name] of order) {
+      html += `<div class="tile"><div class="k"><span class="swatch" style="background:${COLORS[key]}"></span>${name}</div><div class="v">${nfmt(latest[key])}</div></div>`;
+    }
+    html += `<div class="tile"><div class="k">Nerve bar</div><div class="v">${nfmt(latest.nnb)}</div></div>`;
+    $('tiles').innerHTML = html;
+  }
+
+  function render(data) {
+    charts.forEach(c => c.destroy()); charts = [];
+    const labels = data.map(r => labelFor(r.timestamp));
+    const latest = data[data.length - 1];
+
+    renderTiles(latest);
+
+    charts.push(new Chart($('totalChart'), {
+      type: 'line',
+      data: { labels, datasets: [{
+        label: 'Total', data: data.map(r => +r.total),
+        borderColor: GOLD, backgroundColor: 'rgba(224,176,84,.12)',
+        borderWidth: 2, fill: true, tension: .25,
+        pointRadius: data.length > 30 ? 0 : 3, pointBackgroundColor: GOLD, pointHoverRadius: 5
+      }]},
+      options: baseOpts()
+    }));
+
+    const stats = [['strength','Strength'],['defense','Defense'],['speed','Speed'],['dexterity','Dexterity']];
+    charts.push(new Chart($('breakdownChart'), {
+      type: 'line',
+      data: { labels, datasets: stats.map(([key,name]) => ({
+        label: name, data: data.map(r => +r[key]),
+        borderColor: COLORS[key], backgroundColor: COLORS[key],
+        borderWidth: 2, tension: .25,
+        pointRadius: data.length > 30 ? 0 : 2.5, pointHoverRadius: 5
+      }))},
+      options: baseOpts()
+    }));
+
+    $('legend').innerHTML = stats.map(([key,name]) =>
+      `<span><span class="swatch" style="background:${COLORS[key]}"></span>${name}</span>`).join('');
+  }
+
+  async function load() {
+    $('loading').hidden = false; $('content').hidden = true; $('empty').hidden = true;
+    $('status').textContent = 'reading the books…';
+    try {
+      const res = await fetch('history.csv?t=' + Date.now(), { cache: 'no-store' });
+      if (!res.ok) throw new Error('no file');
+      const data = parseCSV(await res.text());
+      if (!data.length) { $('loading').hidden = true; $('empty').hidden = false; $('status').textContent = 'no entries'; return; }
+      $('loading').hidden = true; $('content').hidden = false;
+      render(data);
+      const last = new Date(data[data.length - 1].timestamp);
+      $('status').innerHTML = `<b>${nfmt(data[data.length-1].total)}</b> total · ${data.length} entr${data.length===1?'y':'ies'}<br>last logged ${isNaN(last)?'—':last.toLocaleString()}`;
+    } catch (e) {
+      $('loading').hidden = true; $('empty').hidden = false; $('status').textContent = 'no ledger yet';
+    }
+  }
+  load();
+</script>
