@@ -201,8 +201,8 @@ class FormatTests(unittest.TestCase):
             {"type": "nerve_full", "current": 25, "maximum": 25},
         ]
         msg = tw.format_message(events)
-        self.assertIn("Energy full", msg)
-        self.assertIn("Nerve full", msg)
+        self.assertIn("Energy", msg)
+        self.assertIn("Nerve", msg)
         self.assertEqual(len(msg.splitlines()), 2)
 
 
@@ -217,7 +217,7 @@ class RunOnceTests(unittest.TestCase):
         fetcher = lambda _="": snap(energy=(100, 100))
         events, new_state = tw.run_once(self.cfg, fetcher, self.notifier, prev)
         self.assertEqual(len(self.sent), 1)
-        self.assertIn("Energy full", self.sent[0])
+        self.assertIn("Energy", self.sent[0])
         self.assertEqual(new_state["energy"]["current"], 100)
 
     def test_run_once_silent_when_nothing_changes(self):

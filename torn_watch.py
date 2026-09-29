@@ -28,6 +28,7 @@ import argparse
 import json
 import os
 import sys
+import random
 import urllib.parse
 import urllib.request
 from typing import Callable, Optional
@@ -216,30 +217,64 @@ def evaluate(prev: Optional[dict], cur: dict, config: dict) -> tuple[list[dict],
 
 
 # --------------------------------------------------------------------------
-# Message formatting
+# Message formatting — "Hans" has a laconic underworld-fixer voice, and picks
+# a random line each time so alerts don't read identically. Every energy line
+# contains "Energy", every nerve line "Nerve", etc. (keeps them greppable).
 # --------------------------------------------------------------------------
+_LINES = {
+    "energy_full": [
+        "⚡ Energy's maxed at {current}/{max}. Get to the gym before it spills.",
+        "⚡ Full tank — {current}/{max} Energy. Go move some iron, champ.",
+        "⚡ {current}/{max} Energy and nowhere to spend it. That's waste. Train.",
+        "⚡ Energy topped out ({current}/{max}). The weights are calling.",
+    ],
+    "nerve_full": [
+        "🔴 Nerve's full ({current}/{max}). This city won't rob itself.",
+        "🔴 {current}/{max} Nerve — go make some poor life choices.",
+        "🔴 Full Nerve at {current}/{max}. Time to earn your reputation.",
+        "🔴 Nerve maxed ({current}/{max}). Somewhere, a crime is waiting.",
+    ],
+    "happy_full": [
+        "🙂 Happy's maxed ({current}/{max}) — prime time to train hard.",
+        "🙂 {current}/{max} Happy. Your gains will thank you for it.",
+    ],
+    "energy_increase": [
+        "⚡ Energy ticking up — {current}/{max} (+{delta}).",
+        "⚡ +{delta} Energy, sitting at {current}/{max} now.",
+    ],
+    "nerve_increase": [
+        "🔴 Nerve creeping up — {current}/{max} (+{delta}).",
+        "🔴 +{delta} Nerve, now {current}/{max}.",
+    ],
+    "drug_cooldown_ended": [
+        "💊 Drug cooldown's up — you're clear to dose again.",
+        "💊 Cooldown cleared. The pharmacy's open, so to speak.",
+    ],
+    "medical_cooldown_ended": [
+        "🩹 Medical cooldown's up — patch kit's ready when you are.",
+    ],
+    "booster_cooldown_ended": [
+        "🧪 Booster cooldown cleared. Stock up.",
+    ],
+    "travel_landed": [
+        "✈️ Touched down in {dest}. Try to stay out of the papers.",
+        "✈️ Landed in {dest} — business awaits.",
+        "✈️ You've arrived in {dest}. Watch your back.",
+    ],
+}
+
+
 def format_event(ev: dict) -> str:
     t = ev["type"]
-    if t == "energy_full":
-        return f"⚡ Energy full ({ev['current']}/{ev['maximum']}) — go train at the gym."
-    if t == "nerve_full":
-        return f"🔴 Nerve full ({ev['current']}/{ev['maximum']}) — time for crimes."
-    if t == "happy_full":
-        return f"🙂 Happy full ({ev['current']}/{ev['maximum']})."
-    if t == "drug_cooldown_ended":
-        return "💊 Drug cooldown ended — you can take one again."
-    if t == "medical_cooldown_ended":
-        return "🩹 Medical cooldown ended."
-    if t == "booster_cooldown_ended":
-        return "🧪 Booster cooldown ended."
-    if t == "energy_increase":
-        return f"⚡ Energy {ev['current']}/{ev['maximum']} (+{ev['delta']})."
-    if t == "nerve_increase":
-        return f"🔴 Nerve {ev['current']}/{ev['maximum']} (+{ev['delta']})."
-    if t == "travel_landed":
-        dest = ev.get("destination") or "your destination"
-        return f"✈️ Landed at {dest}."
-    return f"Notice: {t}"
+    lines = _LINES.get(t)
+    if not lines:
+        return f"Notice: {t}"
+    return random.choice(lines).format(
+        current=ev.get("current"),
+        max=ev.get("maximum"),
+        delta=ev.get("delta"),
+        dest=(ev.get("destination") or "your destination"),
+    )
 
 
 def format_message(events: list[dict]) -> str:
