@@ -61,6 +61,12 @@ def default_config() -> dict:
             "medical_cooldown_ended": False,
             "booster_cooldown_ended": False,
             "travel_landed": True,
+            # Test/verify mode: ping on ANY increase of energy/nerve.
+            # Noisy (roughly one ping per poll while not capped) — meant for
+            # confirming the pipeline works, not permanent use. Toggled by the
+            # ALERT_ON_INCREASE env var (see apply_env_overrides / main).
+            "energy_increase": False,
+            "nerve_increase": False,
         },
         "thresholds": {
             "energy": None,   # None -> maximum
@@ -68,6 +74,22 @@ def default_config() -> dict:
             "happy": None,    # None -> maximum
         },
     }
+
+
+def apply_env_overrides(config: dict) -> dict:
+    """Adjust config from environment variables (for GitHub Actions / cron).
+
+    ALERT_ON_INCREASE=1  -> test/verify mode: ping on any energy/nerve increase,
+                            and turn the (redundant, in this mode) *_full pings
+                            off to avoid double messages. Unset -> normal mode.
+    """
+    flag = os.environ.get("ALERT_ON_INCREASE", "").strip().lower()
+    if flag in ("1", "true", "yes", "on"):
+        config["alerts"]["energy_increase"] = True
+        config["alerts"]["nerve_increase"] = True
+        config["alerts"]["energy_full"] = False
+        config["alerts"]["nerve_full"] = False
+    return config
 
 
 # --------------------------------------------------------------------------
@@ -156,6 +178,21 @@ def evaluate(prev: Optional[dict], cur: dict, config: dict) -> tuple[list[dict],
                 "threshold": cur_target,
             })
 
+    # --- Bars increasing at all (test/verify mode — noisy) ---
+    for bar in ("energy", "nerve"):
+        if not alerts.get(f"{bar}_increase"):
+            continue
+        cur_v = cur.get(bar, {}).get("current", 0)
+        prev_v = prev.get(bar, {}).get("current", 0)
+        if cur_v > prev_v:
+            events.append({
+                "type": f"{bar}_increase",
+                "bar": bar,
+                "current": cur_v,
+                "delta": cur_v - prev_v,
+                "maximum": cur.get(bar, {}).get("maximum", 0),
+            })
+
     # --- Cooldowns ending (transition from >0 to 0) ---
     for cd in ("drug", "medical", "booster"):
         if not alerts.get(f"{cd}_cooldown_ended"):
@@ -195,6 +232,10 @@ def format_event(ev: dict) -> str:
         return "🩹 Medical cooldown ended."
     if t == "booster_cooldown_ended":
         return "🧪 Booster cooldown ended."
+    if t == "energy_increase":
+        return f"⚡ Energy {ev['current']}/{ev['maximum']} (+{ev['delta']})."
+    if t == "nerve_increase":
+        return f"🔴 Nerve {ev['current']}/{ev['maximum']} (+{ev['delta']})."
     if t == "travel_landed":
         dest = ev.get("destination") or "your destination"
         return f"✈️ Landed at {dest}."
@@ -304,6 +345,7 @@ def main(argv=None) -> int:
     args = parser.parse_args(argv)
 
     config = default_config()
+    apply_env_overrides(config)
 
     if args.check:
         api_key = os.environ.get("TORN_API_KEY")

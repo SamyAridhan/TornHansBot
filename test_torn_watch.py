@@ -132,6 +132,57 @@ class EvaluateTests(unittest.TestCase):
         self.assertEqual(types, {"energy_full", "nerve_full", "drug_cooldown_ended"})
 
 
+class IncreaseModeTests(unittest.TestCase):
+    def setUp(self):
+        self.cfg = tw.default_config()
+        self.cfg["alerts"]["energy_increase"] = True
+        self.cfg["alerts"]["nerve_increase"] = True
+
+    def test_energy_increase_fires(self):
+        prev = tw.parse_snapshot(snap(energy=(50, 100)))
+        cur = tw.parse_snapshot(snap(energy=(55, 100)))
+        events, _ = tw.evaluate(prev, cur, self.cfg)
+        e = [x for x in events if x["type"] == "energy_increase"]
+        self.assertTrue(e)
+        self.assertEqual(e[0]["delta"], 5)
+
+    def test_no_alert_when_unchanged(self):
+        prev = tw.parse_snapshot(snap(energy=(50, 100)))
+        cur = tw.parse_snapshot(snap(energy=(50, 100)))
+        events, _ = tw.evaluate(prev, cur, self.cfg)
+        self.assertEqual(events, [])
+
+    def test_no_alert_when_decreased(self):
+        # spending energy should NOT alert in increase mode
+        prev = tw.parse_snapshot(snap(energy=(50, 100)))
+        cur = tw.parse_snapshot(snap(energy=(30, 100)))
+        events, _ = tw.evaluate(prev, cur, self.cfg)
+        self.assertEqual(events, [])
+
+    def test_off_by_default(self):
+        prev = tw.parse_snapshot(snap(energy=(50, 100)))
+        cur = tw.parse_snapshot(snap(energy=(55, 100)))
+        events, _ = tw.evaluate(prev, cur, tw.default_config())
+        self.assertNotIn("energy_increase", [x["type"] for x in events])
+
+    def test_env_override_enables_increase_and_disables_full(self):
+        import os
+        os.environ["ALERT_ON_INCREASE"] = "1"
+        try:
+            cfg = tw.apply_env_overrides(tw.default_config())
+        finally:
+            del os.environ["ALERT_ON_INCREASE"]
+        self.assertTrue(cfg["alerts"]["energy_increase"])
+        self.assertTrue(cfg["alerts"]["nerve_increase"])
+        self.assertFalse(cfg["alerts"]["energy_full"])
+        self.assertFalse(cfg["alerts"]["nerve_full"])
+
+    def test_env_override_absent_keeps_normal(self):
+        cfg = tw.apply_env_overrides(tw.default_config())
+        self.assertFalse(cfg["alerts"]["energy_increase"])
+        self.assertTrue(cfg["alerts"]["energy_full"])
+
+
 class FormatTests(unittest.TestCase):
     def test_each_event_formats(self):
         for ev in [

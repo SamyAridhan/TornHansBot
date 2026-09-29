@@ -41,6 +41,11 @@ jobs:
           TORN_API_KEY: ${{ secrets.TORN_API_KEY }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          # Optional test/verify mode: set a repo VARIABLE named ALERT_ON_INCREASE
+          # to 1 (Settings -> Secrets and variables -> Actions -> Variables) to get
+          # a ping on every energy/nerve increase. Delete it to return to normal
+          # "full" alerts. Empty when the variable doesn't exist = normal mode.
+          ALERT_ON_INCREASE: ${{ vars.ALERT_ON_INCREASE }}
         run: python3 torn_watch.py
 
       - name: Save state
