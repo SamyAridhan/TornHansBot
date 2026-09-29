@@ -1,0 +1,47 @@
+name: torn-market
+
+# Watches item prices and pings you when a watched item drops to/below its
+# target. OPT-IN and manual-only for now: run it from the Actions tab. Once
+# you've confirmed the market API with `--check-market <id>` and filled
+# watchlist.json, add a schedule line below to run it automatically.
+
+on:
+  workflow_dispatch: {}
+  # schedule:
+  #   - cron: "*/30 * * * *"   # uncomment once watchlist.json is set
+
+concurrency:
+  group: torn-market
+  cancel-in-progress: false
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Restore market state
+        uses: actions/cache/restore@v4
+        with:
+          path: market_state.json
+          key: torn-market-${{ github.run_id }}
+          restore-keys: |
+            torn-market-
+
+      - name: Watch market
+        env:
+          TORN_API_KEY: ${{ secrets.TORN_API_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python3 torn_watch.py --watch-market
+
+      - name: Save market state
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: market_state.json
+          key: torn-market-${{ github.run_id }}

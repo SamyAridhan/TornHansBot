@@ -300,6 +300,23 @@ def make_torn_fetcher(api_key: str, selections: str = DEFAULT_SELECTIONS) -> Htt
     return fetch
 
 
+def make_market_fetcher(api_key: str, item_id: str) -> HttpGet:
+    """Fetch one item's market listings (Torn v1 market selection). The exact
+    JSON shape is confirmed with --check-market before the watcher relies on it;
+    tier2.parse_market handles the known shapes defensively."""
+    def fetch(_ignored: str = "") -> dict:
+        params = urllib.parse.urlencode({"selections": "itemmarket", "key": api_key})
+        url = f"{TORN_API_BASE}/market/{item_id}?{params}"
+        req = urllib.request.Request(url, headers={"User-Agent": "torn-watch/1.0"})
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+        if isinstance(data, dict) and "error" in data:
+            err = data["error"]
+            raise TornApiError(err.get("code"), err.get("error"))
+        return data
+    return fetch
+
+
 def make_telegram_notifier(bot_token: str, chat_id: str) -> Notifier:
     def send(text: str) -> None:
         url = f"{TELEGRAM_API_BASE}/bot{bot_token}/sendMessage"
@@ -378,6 +395,12 @@ def main(argv=None) -> int:
     parser.add_argument("--log-stats", metavar="PATH", default=None,
                         help="Fetch battle stats with TORN_API_KEY, append a row to the "
                              "CSV at PATH (with a timestamp), then exit. No Telegram needed.")
+    parser.add_argument("--check-market", metavar="ITEM_ID", default=None,
+                        help="Fetch one item's market listing and print raw + parsed lowest "
+                             "price, to confirm the market API shape. No Telegram needed.")
+    parser.add_argument("--watch-market", action="store_true",
+                        help="Read watchlist.json, alert on items at/under their target price. "
+                             "Uses market_state.json for dedup.")
     parser.add_argument("--state", default=os.environ.get("STATE_FILE", DEFAULT_STATE_FILE),
                         help="Path to the state file (default: state.json).")
     args = parser.parse_args(argv)
@@ -405,6 +428,64 @@ def main(argv=None) -> int:
               f"(str {stats['strength']}, def {stats['defense']}, "
               f"spd {stats['speed']}, dex {stats['dexterity']}) "
               f"nerve_bar={nerve_max} -> {args.log_stats}")
+        return 0
+
+    if args.check_market:
+        import tier2
+        api_key = os.environ.get("TORN_API_KEY")
+        if not api_key:
+            print("Missing env var: TORN_API_KEY", file=sys.stderr)
+            return 2
+        try:
+            raw = make_market_fetcher(api_key, args.check_market)("")
+        except TornApiError as e:
+            print(f"Torn API error: {e}", file=sys.stderr)
+            return 3
+        print("=== RAW market payload ===")
+        print(json.dumps(raw, indent=2)[:2000])
+        print("\n=== PARSED lowest price ===")
+        print(tier2.parse_market(raw))
+        print("\nIf the lowest price is None but the raw payload clearly has "
+              "listings, the listing field name needs adjusting in tier2.parse_market().")
+        return 0
+
+    if args.watch_market:
+        import tier2
+        api_key = os.environ.get("TORN_API_KEY")
+        bot_token = os.environ.get("TELEGRAM_BOT_TOKEN")
+        chat_id = os.environ.get("TELEGRAM_CHAT_ID")
+        if not (api_key and bot_token and chat_id):
+            print("Missing env vars for --watch-market (need TORN_API_KEY, "
+                  "TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID)", file=sys.stderr)
+            return 2
+        watchlist = {}
+        if os.path.exists("watchlist.json"):
+            try:
+                with open("watchlist.json", encoding="utf-8") as f:
+                    watchlist = json.load(f)
+            except (json.JSONDecodeError, OSError):
+                watchlist = {}
+        # Drop comment keys (anything starting with "_")
+        watchlist = {k: v for k, v in watchlist.items() if not k.startswith("_")}
+        if not watchlist:
+            print("watchlist.json empty or missing — nothing to watch.")
+            return 0
+        cur_lows = {}
+        for item_id in watchlist:
+            try:
+                raw = make_market_fetcher(api_key, item_id)("")
+                low = tier2.parse_market(raw)
+                if low is not None:
+                    cur_lows[item_id] = low
+            except TornApiError as e:
+                print(f"Market fetch error for {item_id}: {e}", file=sys.stderr)
+        prev_lows = load_state("market_state.json") or {}
+        events, new_lows = tier2.evaluate_market(prev_lows, cur_lows, watchlist)
+        if events:
+            notifier = make_telegram_notifier(bot_token, chat_id)
+            notifier("\n".join(tier2.format_tier2_event(e) for e in events))
+        save_state("market_state.json", new_lows)
+        print(f"Market check done. {len(cur_lows)} priced, {len(events)} alert(s) sent.")
         return 0
 
     if args.check:

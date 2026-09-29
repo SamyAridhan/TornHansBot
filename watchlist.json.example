@@ -1,0 +1,4 @@
+{
+  "_comment": "Market watchlist for Hans. Map each Torn item ID to a name and a target price. When that item's cheapest market listing drops to or below its target, Hans pings you once (it re-arms if the price climbs back above target). Find an item's ID in its item-market page URL. Copy this file to watchlist.json (drop the .example) to activate, then run the torn-market workflow. First confirm the market API with:  python3 torn_watch.py --check-market <ITEM_ID>",
+  "_example": { "name": "Example Item", "target": 1000000 }
+}
