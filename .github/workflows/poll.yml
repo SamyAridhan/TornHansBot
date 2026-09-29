@@ -1,20 +1,25 @@
 name: torn-watch
 
+# Reliability note: GitHub's cron scheduler will NOT fire an every-15-min
+# schedule dependably (it throttles/skips frequent schedules). So instead of
+# relying on that, each run polls in an internal loop every 15 minutes for
+# ~4.75 hours, and we only ask the scheduler to *restart* the loop every ~5
+# hours — a low bar it can meet. Public repos get unlimited Actions minutes,
+# so the long-running loop is free.
+
 on:
   schedule:
-    # Every 15 minutes (UTC). GitHub may delay scheduled runs under load —
-    # fine for "ping me when a bar is full" since bars fill over hours.
-    - cron: "*/15 * * * *"
-  workflow_dispatch: {}   # lets you run it manually from the Actions tab
+    - cron: "8 */5 * * *"   # restart the loop roughly every 5 hours (offset off :00)
+  workflow_dispatch: {}      # run manually to start a fresh loop immediately
 
-# Avoid overlapping runs stepping on the state cache.
 concurrency:
   group: torn-watch
-  cancel-in-progress: false
+  cancel-in-progress: false  # never kill a running loop; queue a new start behind it
 
 jobs:
   poll:
     runs-on: ubuntu-latest
+    timeout-minutes: 300     # ~5h, safely under GitHub's 6h hard cap
     steps:
       - name: Check out repo
         uses: actions/checkout@v4
@@ -24,10 +29,6 @@ jobs:
         with:
           python-version: "3.11"
 
-      # Restore the alert-dedup state from the most recent previous run.
-      # Each run writes a new cache entry (keys are immutable), and restore-keys
-      # pulls the latest matching prefix. Best-effort: a cache miss just means
-      # one silent re-baseline, never a crash.
       - name: Restore state
         uses: actions/cache/restore@v4
         with:
@@ -36,17 +37,22 @@ jobs:
           restore-keys: |
             torn-state-
 
-      - name: Poll Torn and notify
+      - name: Poll every 15 min for ~4.75h
         env:
           TORN_API_KEY: ${{ secrets.TORN_API_KEY }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          # Optional test/verify mode: set a repo VARIABLE named ALERT_ON_INCREASE
-          # to 1 (Settings -> Secrets and variables -> Actions -> Variables) to get
-          # a ping on every energy/nerve increase. Delete it to return to normal
-          # "full" alerts. Empty when the variable doesn't exist = normal mode.
+          # Test/verify mode: set repo VARIABLE ALERT_ON_INCREASE=1 to ping on
+          # every energy/nerve increase; delete it for normal "full" alerts.
           ALERT_ON_INCREASE: ${{ vars.ALERT_ON_INCREASE }}
-        run: python3 torn_watch.py
+        run: |
+          ITER=20
+          for i in $(seq 1 $ITER); do
+            echo "::group::poll $i/$ITER ($(date -u +%FT%TZ))"
+            python3 torn_watch.py || echo "poll $i failed (continuing)"
+            echo "::endgroup::"
+            if [ "$i" -lt "$ITER" ]; then sleep 900; fi
+          done
 
       - name: Save state
         if: always()
