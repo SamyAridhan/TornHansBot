@@ -410,6 +410,13 @@ def main(argv=None) -> int:
         return 3
 
     save_state(args.state, new_state)
+    en = new_state.get("energy", {})
+    nv = new_state.get("nerve", {})
+    inc = "on" if config["alerts"].get("energy_increase") else "off"
+    print(f"[diag] prev_state={'loaded' if prev_state else 'NONE(first-run/baseline)'} "
+          f"| energy={en.get('current')}/{en.get('maximum')} "
+          f"nerve={nv.get('current')}/{nv.get('maximum')} "
+          f"| increase_mode={inc} | alerts_sent={len(events)}")
     print(f"Polled OK. {len(events)} alert(s) sent.")
     return 0
 
