@@ -1,0 +1,51 @@
+name: torn-watch
+
+on:
+  schedule:
+    # Every 15 minutes (UTC). GitHub may delay scheduled runs under load —
+    # fine for "ping me when a bar is full" since bars fill over hours.
+    - cron: "*/15 * * * *"
+  workflow_dispatch: {}   # lets you run it manually from the Actions tab
+
+# Avoid overlapping runs stepping on the state cache.
+concurrency:
+  group: torn-watch
+  cancel-in-progress: false
+
+jobs:
+  poll:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # Restore the alert-dedup state from the most recent previous run.
+      # Each run writes a new cache entry (keys are immutable), and restore-keys
+      # pulls the latest matching prefix. Best-effort: a cache miss just means
+      # one silent re-baseline, never a crash.
+      - name: Restore state
+        uses: actions/cache/restore@v4
+        with:
+          path: state.json
+          key: torn-state-${{ github.run_id }}
+          restore-keys: |
+            torn-state-
+
+      - name: Poll Torn and notify
+        env:
+          TORN_API_KEY: ${{ secrets.TORN_API_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python3 torn_watch.py
+
+      - name: Save state
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: state.json
+          key: torn-state-${{ github.run_id }}
