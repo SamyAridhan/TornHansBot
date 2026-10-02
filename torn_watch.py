@@ -74,6 +74,13 @@ def default_config() -> dict:
             "nerve": None,    # None -> maximum
             "happy": None,    # None -> maximum
         },
+        # "Marks": ping each time a bar rises to/above these levels (edge-
+        # triggered, so it fires on the way up and re-arms after you spend
+        # back below). Independent of the *_full alerts. Set to None to disable.
+        "marks": {
+            "energy": 25,
+            "nerve": 10,
+        },
     }
 
 
@@ -179,6 +186,22 @@ def evaluate(prev: Optional[dict], cur: dict, config: dict) -> tuple[list[dict],
                 "threshold": cur_target,
             })
 
+    # --- Bar "marks": crossing up to/over a set level (edge-triggered) ---
+    marks = config.get("marks", {})
+    for bar, mark in marks.items():
+        if mark is None:
+            continue
+        cur_v = cur.get(bar, {}).get("current", 0)
+        prev_v = prev.get(bar, {}).get("current", 0)
+        if cur_v >= mark and prev_v < mark:
+            events.append({
+                "type": f"{bar}_mark",
+                "bar": bar,
+                "current": cur_v,
+                "maximum": cur.get(bar, {}).get("maximum", 0),
+                "mark": mark,
+            })
+
     # --- Bars increasing at all (test/verify mode — noisy) ---
     for bar in ("energy", "nerve"):
         if not alerts.get(f"{bar}_increase"):
@@ -237,6 +260,14 @@ _LINES = {
     "happy_full": [
         "🙂 Happy's maxed ({current}/{max}) — prime time to train hard.",
         "🙂 {current}/{max} Happy. Your gains will thank you for it.",
+    ],
+    "energy_mark": [
+        "⚡ Energy's at {current}/{max} — enough to get moving.",
+        "⚡ {current}/{max} Energy in the tank. Time to spend some.",
+    ],
+    "nerve_mark": [
+        "🔴 Nerve's at {current}/{max} — enough for a job or two.",
+        "🔴 {current}/{max} Nerve banked. Go put it to work.",
     ],
     "energy_increase": [
         "⚡ Energy ticking up — {current}/{max} (+{delta}).",
