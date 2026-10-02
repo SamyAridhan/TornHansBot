@@ -815,7 +815,6 @@ def main(argv=None) -> int:
 
     if args.log_stats:
         import tier2
-        from datetime import datetime, timezone
         api_key = os.environ.get("TORN_API_KEY")
         if not api_key:
             print("Missing env var: TORN_API_KEY", file=sys.stderr)

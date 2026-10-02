@@ -450,6 +450,28 @@ class AdaptiveSleepTests(unittest.TestCase):
         self.assertEqual(s, 300)  # next mark is far, so cap wins
 
 
+class LoopModeTests(unittest.TestCase):
+    """Guards the --loop entrypoint (would have caught the datetime shadowing)."""
+
+    def test_loop_runs_clean(self):
+        import os, tempfile
+        orig_fetch, orig_notify = tw.make_torn_fetcher, tw.make_telegram_notifier
+        sent = []
+        tw.make_torn_fetcher = lambda k, s=tw.DEFAULT_SELECTIONS: (lambda _="": {
+            "energy": {"current": 20, "maximum": 100, "increment": 5,
+                       "interval": 900, "ticktime": 300, "fulltime": 16200},
+            "nerve": {"current": 8, "maximum": 25, "increment": 1,
+                      "interval": 300, "ticktime": 60, "fulltime": 5100},
+            "cooldowns": {}, "travel": {}, "status": {"state": "Okay"}, "total": 238})
+        tw.make_telegram_notifier = lambda t, c: (lambda m: sent.append(m))
+        os.environ.update(TORN_API_KEY="x", TELEGRAM_BOT_TOKEN="y", TELEGRAM_CHAT_ID="z")
+        try:
+            rc = tw.main(["--loop", "1", "--state", tempfile.mktemp(suffix=".json")])
+        finally:
+            tw.make_torn_fetcher, tw.make_telegram_notifier = orig_fetch, orig_notify
+        self.assertEqual(rc, 0)
+
+
 class QuietHoursTests(unittest.TestCase):
     def setUp(self):
         self.cfg = tw.default_config()  # quiet 01:00–08:00 local, enabled
