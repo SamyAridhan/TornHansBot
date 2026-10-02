@@ -60,6 +60,23 @@ class FormatStatusTests(unittest.TestCase):
         self.assertIn("<pre>", msg)            # aligned monospace table
         self.assertIn("Med 12m", msg)          # only the still-ticking cooldown
 
+    def test_hospital_line_shown_when_applicable(self):
+        import time
+        raw = {"energy": {"current": 10, "maximum": 100},
+               "status": {"state": "Hospital", "until": int(time.time()) + 720}}
+        snap = tw.parse_snapshot(raw)
+        msg = bot.format_status(snap, self.now, tz_offset=8)
+        self.assertIn("In hospital", msg)
+        self.assertIn("out in", msg)
+
+    def test_hospital_line_hidden_when_okay(self):
+        raw = {"energy": {"current": 10, "maximum": 100},
+               "status": {"state": "Okay", "until": 0}}
+        snap = tw.parse_snapshot(raw)
+        msg = bot.format_status(snap, self.now, tz_offset=8)
+        self.assertNotIn("hospital", msg.lower())
+        self.assertNotIn("jail", msg.lower())
+
     def test_travel_line_only_when_travelling(self):
         self.assertNotIn("transit", bot.format_status(self.snap, self.now))
         raw2 = {"travel": {"time_left": 3600, "destination": "Mexico"}}

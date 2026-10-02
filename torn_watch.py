@@ -67,7 +67,9 @@ def default_config() -> dict:
             "travel_landed": True,
             # Smarter alerts (Phase 2):
             "energy_overflow": True,   # warn before energy caps & wastes regen
+            "hospital_in": True,       # you've been hospitalized (with countdown)
             "hospital_out": True,      # you've left hospital
+            "jail_in": True,           # you've been jailed (with countdown)
             "jail_out": True,          # you've left jail
             "milestone": True,         # total battle stats crossed a round number
             # Test/verify mode: ping on ANY increase of energy/nerve.
@@ -475,9 +477,16 @@ def evaluate(prev: Optional[dict], cur: dict, config: dict) -> tuple[list[dict],
                     "current": cc, "maximum": mx, "eta_full": cur_eta,
                 })
 
-    # --- Out of hospital / jail (state transition back to Okay) ---
+    # --- Hospital / jail state transitions ---
     prev_cat = _state_category(prev.get("status", {}).get("state", ""))
     cur_cat = _state_category(cur.get("status", {}).get("state", ""))
+    until = cur.get("status", {}).get("until", 0)
+    # entering (from a known, different state — not from unknown/baseline)
+    if alerts.get("hospital_in") and cur_cat == "hospital" and prev_cat not in ("hospital", ""):
+        events.append({"type": "hospital_in", "until": until})
+    if alerts.get("jail_in") and cur_cat == "jail" and prev_cat not in ("jail", ""):
+        events.append({"type": "jail_in", "until": until})
+    # leaving (back to Okay / anything non-hospital-jail)
     if alerts.get("hospital_out") and prev_cat == "hospital" and cur_cat not in ("hospital", ""):
         events.append({"type": "hospital_out"})
     if alerts.get("jail_out") and prev_cat == "jail" and cur_cat not in ("jail", ""):
@@ -536,7 +545,9 @@ _EMOJI = {
     "medical_cooldown_ended": "🩹",
     "booster_cooldown_ended": "🧪",
     "travel_landed": "✈️",
+    "hospital_in": "🏥",
     "hospital_out": "🏥",
+    "jail_in": "🚔",
     "jail_out": "🔓",
     "milestone": "🏆",
 }
@@ -584,10 +595,19 @@ _FLAVOR = {
         "Energy nearly full. Burn some before regen goes to waste",
         "Energy's topping off soon — don't leave gains on the table",
     ],
+    "hospital_in": [
+        "You've been hospitalized",
+        "Ouch — you're in hospital",
+        "Laid up in hospital",
+    ],
     "hospital_out": [
         "You're out of hospital. Back on your feet",
         "Discharged — out of hospital and good to go",
         "Hospital's done with you. Get back to it",
+    ],
+    "jail_in": [
+        "You've been thrown in jail",
+        "Busted — you're in jail",
     ],
     "jail_out": [
         "You're out of jail. Lay low for a bit",
@@ -672,6 +692,13 @@ def format_event(ev: dict) -> str:
             lines.append(f"⏳ caps in <b>{fmt_duration_compact(eta)}</b>")
         return "\n".join(lines)
 
+    # Hospital/jail entry: show the time until you're out, from status.until.
+    if t in ("hospital_in", "jail_in"):
+        until = ev.get("until", 0)
+        if until:
+            remaining = int(until - datetime.now(timezone.utc).timestamp())
+            if remaining > 0:
+                return f"{head}\n🩹 out in <b>{fmt_duration_compact(remaining)}</b>"
     return head
 
 

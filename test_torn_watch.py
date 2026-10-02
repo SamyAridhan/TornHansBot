@@ -353,6 +353,28 @@ class SmarterAlertTests(unittest.TestCase):
         events, _ = tw.evaluate(prev, cur, self.cfg)
         self.assertNotIn("energy_overflow", [e["type"] for e in events])
 
+    def test_hospital_in_fires_with_until(self):
+        prev = self._snap(50, 7200, state="Okay")
+        cur = self._snap(50, 7200, state="Hospital")
+        # inject an until timestamp on the cur status
+        cur["status"]["until"] = 9999999999
+        events, _ = tw.evaluate(prev, cur, self.cfg)
+        hi = [e for e in events if e["type"] == "hospital_in"]
+        self.assertTrue(hi)
+        self.assertEqual(hi[0]["until"], 9999999999)
+
+    def test_hospital_in_no_fire_from_unknown(self):
+        prev = self._snap(50, 7200, state="")   # unknown baseline
+        cur = self._snap(50, 7200, state="Hospital")
+        events, _ = tw.evaluate(prev, cur, self.cfg)
+        self.assertNotIn("hospital_in", [e["type"] for e in events])
+
+    def test_hospital_in_message_shows_countdown(self):
+        import time
+        ev = {"type": "hospital_in", "until": int(time.time()) + 600}
+        msg = tw.format_event(ev)
+        self.assertIn("out in", msg)
+
     def test_hospital_out_fires(self):
         prev = self._snap(50, 7200, state="Hospital")
         cur = self._snap(50, 7200, state="Okay")

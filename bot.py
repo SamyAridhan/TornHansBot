@@ -153,6 +153,16 @@ def format_status(snapshot: dict, now_utc: datetime, tz_offset: int = DEFAULT_TZ
     ]
     out = [f"🗂 <b>Hans Report</b> · {local:%H:%M}", "<pre>" + "\n".join(rows) + "</pre>"]
 
+    # Hospital / jail line — only shown when it applies (hidden when Okay).
+    st = snapshot.get("status", {})
+    cat = tw._state_category(st.get("state", ""))
+    until = st.get("until", 0)
+    if cat in ("hospital", "jail") and until:
+        remaining = int(until - now_utc.timestamp())
+        if remaining > 0:
+            label = "🏥 <b>In hospital</b>" if cat == "hospital" else "🚔 <b>In jail</b>"
+            out.append(f"{label} · out in {tw.fmt_duration_compact(remaining)}")
+
     # Cooldowns: only name the ones still ticking; otherwise one short line.
     cd = snapshot.get("cooldowns", {})
     busy = []
@@ -374,6 +384,8 @@ def _preview_message() -> str:
         {"type": "energy_overflow", "bar": "energy", "current": 95, "maximum": 100,
          "eta_full": 120},
         {"type": "energy_full", "bar": "energy", "current": 100, "maximum": 100},
+        {"type": "hospital_in",
+         "until": int(datetime.now(timezone.utc).timestamp()) + 720},
         {"type": "milestone", "value": 50000, "total": 61250},
         {"type": "travel_landed", "destination": "Switzerland"},
     ]
@@ -399,7 +411,8 @@ def handle(cmd: str, arg: str, api_key: str, now_utc: datetime,
         return _preview_message(), None
     try:
         if cmd in ("status", "next"):
-            raw = tw.make_torn_fetcher(api_key, "bars,cooldowns,travel")("")
+            sel = "bars,cooldowns,travel,profile" if cmd == "status" else "bars"
+            raw = tw.make_torn_fetcher(api_key, sel)("")
             snap = tw.parse_snapshot(raw)
             fmt = format_status if cmd == "status" else format_next
             return fmt(snap, now_utc, tz_offset), None
