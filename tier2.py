@@ -56,6 +56,21 @@ def parse_market(raw: dict) -> Optional[int]:
     return min(prices) if prices else None
 
 
+def parse_market_item(raw: dict) -> dict:
+    """Pull the item's name and image URL from a v2 itemmarket payload.
+
+    Returns {"name": str|None, "image": str|None}. Defensive: anything missing
+    comes back as None so callers can fall back gracefully."""
+    im = raw.get("itemmarket", raw.get("bazaar"))
+    item = im.get("item") if isinstance(im, dict) else None
+    item = item if isinstance(item, dict) else {}
+    name = item.get("name")
+    image = item.get("image")
+    if not (isinstance(image, str) and image.startswith("http")):
+        image = None
+    return {"name": name if isinstance(name, str) else None, "image": image}
+
+
 def evaluate_market(prev_lows: dict, cur_lows: dict, watchlist: dict) -> tuple[list[dict], dict]:
     """Edge-triggered deal alerts.
 

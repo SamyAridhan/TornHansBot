@@ -131,13 +131,21 @@ class PinStateTests(unittest.TestCase):
 
 class HandleTests(unittest.TestCase):
     def test_help_needs_no_network(self):
-        msg = bot.handle("help", "", api_key="", now_utc=datetime.now(timezone.utc))
+        msg, photo = bot.handle("help", "", api_key="", now_utc=datetime.now(timezone.utc))
         self.assertIn("/status", msg)
+        self.assertIsNone(photo)
 
     def test_price_bad_arg_no_network(self):
-        msg = bot.handle("price", "notanumber", api_key="",
-                         now_utc=datetime.now(timezone.utc))
+        msg, photo = bot.handle("price", "notanumber", api_key="",
+                                now_utc=datetime.now(timezone.utc))
         self.assertIn("item id", msg)
+        self.assertIsNone(photo)
+
+    def test_item_image_url_fallback(self):
+        self.assertEqual(bot.item_image_url("206", None),
+                         "https://www.torn.com/images/items/206/large.png")
+        self.assertEqual(bot.item_image_url("206", "https://cdn/x.png"),
+                         "https://cdn/x.png")
 
 
 if __name__ == "__main__":

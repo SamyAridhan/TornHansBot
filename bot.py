@@ -248,6 +248,18 @@ def send_reply(bot_token: str, chat_id: str, text: str, with_keyboard: bool = Tr
     _tg_call(bot_token, "sendMessage", payload)
 
 
+def send_photo_reply(bot_token: str, chat_id: str, photo_url: str, caption: str) -> None:
+    """Send an image with caption + the inline menu. Falls back to a plain text
+    reply if Telegram can't fetch the image (bad/missing URL), so /price never
+    comes back broken."""
+    r = _tg_call(bot_token, "sendPhoto", {
+        "chat_id": chat_id, "photo": photo_url, "caption": caption,
+        "parse_mode": "HTML", "reply_markup": MENU_INLINE,
+    })
+    if not r.get("ok"):
+        send_reply(bot_token, chat_id, caption)
+
+
 def answer_callback(bot_token: str, cq_id: str) -> None:
     """Acknowledge a button tap so Telegram stops its loading spinner."""
     _tg_call(bot_token, "answerCallbackQuery", {"callback_query_id": cq_id})
@@ -339,34 +351,46 @@ def refresh_pin(api_key: str, bot_token: str, chat_id: str, tz_offset: int) -> N
 # --------------------------------------------------------------------------
 # Command handling
 # --------------------------------------------------------------------------
+def item_image_url(item_id: str, api_image: Optional[str]) -> str:
+    """Prefer the image URL the API gave us; else Torn's standard item image."""
+    if api_image:
+        return api_image
+    return f"https://www.torn.com/images/items/{item_id}/large.png"
+
+
 def handle(cmd: str, arg: str, api_key: str, now_utc: datetime,
-           tz_offset: int = DEFAULT_TZ_OFFSET) -> str:
-    """Produce the reply text for one command. Network reads happen here via
-    torn_watch/tier2 fetchers; kept out of the pure formatters so those test
-    clean. Any API hiccup becomes a friendly message, never a crash."""
+           tz_offset: int = DEFAULT_TZ_OFFSET) -> tuple[str, Optional[str]]:
+    """Produce (reply_text, photo_url) for one command. photo_url is set only
+    for /price (the item image); everything else returns (text, None). Network
+    reads happen here; any API hiccup becomes a friendly message, never a crash."""
     if cmd == "help":
-        return HELP_TEXT
+        return HELP_TEXT, None
     try:
         if cmd in ("status", "next"):
             raw = tw.make_torn_fetcher(api_key, "bars,cooldowns,travel")("")
             snap = tw.parse_snapshot(raw)
-            return (format_status if cmd == "status" else format_next)(snap, now_utc, tz_offset)
+            fmt = format_status if cmd == "status" else format_next
+            return fmt(snap, now_utc, tz_offset), None
         if cmd == "stats":
             raw = tw.make_torn_fetcher(api_key, "battlestats")("")
             stats = tier2.parse_battlestats(raw)
-            return format_stats(stats, _last_history_row())
+            return format_stats(stats, _last_history_row()), None
         if cmd == "price":
             if not arg.isdigit():
                 return ("💰 Give me an item id, e.g. <code>/price 206</code> "
-                        "(find it in the item's market URL).")
+                        "(find it in the item's market URL).", None)
             raw = tw.make_market_fetcher(api_key, arg)("")
             low = tier2.parse_market(raw)
-            return format_price(arg, _watchlist_name(arg), low)
+            meta = tier2.parse_market_item(raw)
+            name = meta["name"] or _watchlist_name(arg)
+            caption = format_price(arg, name, low)
+            photo = item_image_url(arg, meta["image"]) if low is not None else None
+            return caption, photo
     except tw.TornApiError as e:
-        return f"⚠️ Torn API said: {tw.html_escape(str(e.message))}"
+        return f"⚠️ Torn API said: {tw.html_escape(str(e.message))}", None
     except Exception as e:  # noqa: BLE001 — never let one bad command kill the loop
-        return f"⚠️ Something went wrong reading that ({tw.html_escape(str(e))})."
-    return ""
+        return f"⚠️ Something went wrong reading that ({tw.html_escape(str(e))}).", None
+    return "", None
 
 
 def _last_history_row() -> Optional[dict]:
@@ -528,8 +552,10 @@ def main(argv=None) -> int:
                 send_reply(bot_token, chat_id,
                            "🤷 Didn't catch that. Tap a button or try /help.")
                 continue
-            reply = handle(cmd, arg, api_key, datetime.now(timezone.utc), tz_offset)
-            if reply:
+            reply, photo = handle(cmd, arg, api_key, datetime.now(timezone.utc), tz_offset)
+            if photo:
+                send_photo_reply(bot_token, chat_id, photo, reply)
+            elif reply:
                 send_reply(bot_token, chat_id, reply)
 
         if updates:

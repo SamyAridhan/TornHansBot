@@ -32,6 +32,26 @@ class MarketParseTests(unittest.TestCase):
         raw = {"listings": [{"price": 500, "amount": 2}]}
         self.assertEqual(tier2.parse_market(raw), 500)
 
+
+class MarketItemTests(unittest.TestCase):
+    def test_name_and_image(self):
+        raw = {"itemmarket": {"item": {"id": 206, "name": "Xanax",
+                                       "image": "https://x/206.png"}, "listings": []}}
+        meta = tier2.parse_market_item(raw)
+        self.assertEqual(meta["name"], "Xanax")
+        self.assertEqual(meta["image"], "https://x/206.png")
+
+    def test_missing_item_defaults_none(self):
+        meta = tier2.parse_market_item({})
+        self.assertIsNone(meta["name"])
+        self.assertIsNone(meta["image"])
+
+    def test_non_url_image_dropped(self):
+        raw = {"itemmarket": {"item": {"name": "Xanax", "image": "items/206.png"}}}
+        meta = tier2.parse_market_item(raw)
+        self.assertEqual(meta["name"], "Xanax")
+        self.assertIsNone(meta["image"])   # not a full URL -> fall back later
+
     def test_ignores_bad_entries(self):
         raw = {"itemmarket": {"listings": [{"price": None}, {"nope": 1}, {"price": 500}]}}
         self.assertEqual(tier2.parse_market(raw), 500)
