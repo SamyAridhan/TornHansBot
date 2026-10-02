@@ -9,6 +9,7 @@ name: torn-watch
 # A push that touches this file also starts a run (used to restart immediately).
 # Public repo => unlimited Actions minutes, so the overlap is free.
 # Restarted to pick up: exact regen-clock timing + HTML-rich messages (2026-10-02).
+# Restarted again for Phase 2 smarter alerts + quiet hours (2026-10-02).
 
 on:
   schedule:
