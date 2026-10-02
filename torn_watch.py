@@ -636,23 +636,23 @@ def format_event(ev: dict) -> str:
     )
     head = f"{emoji} <b>{flavor}</b>"
 
-    # Bar events (energy/nerve/happy and variants) get a second line: the
-    # value, the gauge, and the timing — kept short so it never wraps.
+    # Bar events (energy/nerve/happy and variants): each piece on its own short
+    # line so nothing wraps — the flavor, then the value + gauge, then timing.
     cur = ev.get("current")
     if ev.get("bar") and isinstance(cur, int):
         mx = ev.get("maximum") or 0
         gauge = progress_bar(cur, mx)
         stat = f"<code>{cur}/{mx}</code>" if mx else f"<code>{cur}</code>"
-        detail = f"{stat} {gauge}"
+        lines = [head, f"{stat} {gauge}"]
         delta = ev.get("delta")
         if t.endswith("_increase") and isinstance(delta, int):
-            detail += f" <i>(+{delta})</i>"
+            lines.append(f"<i>+{delta}</i>")
         eta = ev.get("eta_full")
         if t.endswith("_mark") and eta:
-            detail += f" · full in <b>{fmt_duration_compact(eta)}</b>"
+            lines.append(f"🔜 full in <b>{fmt_duration_compact(eta)}</b>")
         elif t == "energy_overflow" and eta:
-            detail += f" · caps in <b>{fmt_duration_compact(eta)}</b>"
-        return f"{head}\n{detail}"
+            lines.append(f"⏳ caps in <b>{fmt_duration_compact(eta)}</b>")
+        return "\n".join(lines)
 
     return head
 

@@ -115,9 +115,12 @@ def parse_command(text: str) -> tuple[Optional[str], str]:
     if "@" in cmd:  # /status@HansBot in groups
         cmd = cmd.split("@", 1)[0]
     arg = parts[1].strip() if len(parts) > 1 else ""
-    known = {"status", "stats", "next", "price", "help", "start"}
+    known = {"status", "stats", "next", "price", "help", "start",
+             "preview", "sample", "test"}
     if cmd == "start":
         cmd = "help"
+    if cmd in ("sample", "test"):
+        cmd = "preview"
     if cmd not in known:
         return None, ""
     return cmd, arg
@@ -360,6 +363,24 @@ def refresh_pin(api_key: str, bot_token: str, chat_id: str, tz_offset: int) -> N
 # --------------------------------------------------------------------------
 # Command handling
 # --------------------------------------------------------------------------
+def _preview_message() -> str:
+    """Render one of each alert exactly as the poller would send it, so you can
+    eyeball the formatting on demand instead of waiting for a real crossing."""
+    samples = [
+        {"type": "energy_mark", "bar": "energy", "current": 25, "maximum": 100,
+         "mark": 25, "eta_full": 13440},
+        {"type": "nerve_mark", "bar": "nerve", "current": 10, "maximum": 25,
+         "mark": 10, "eta_full": 4200},
+        {"type": "energy_overflow", "bar": "energy", "current": 95, "maximum": 100,
+         "eta_full": 120},
+        {"type": "energy_full", "bar": "energy", "current": 100, "maximum": 100},
+        {"type": "milestone", "value": 50000, "total": 61250},
+        {"type": "travel_landed", "destination": "Switzerland"},
+    ]
+    body = "\n\n".join(tw.format_event(e) for e in samples)
+    return "👁 <b>Alert format preview</b>\n<i>(samples — not live values)</i>\n\n" + body
+
+
 def item_image_url(item_id: str, api_image: Optional[str]) -> str:
     """Prefer the image URL the API gave us; else Torn's standard item image."""
     if api_image:
@@ -374,6 +395,8 @@ def handle(cmd: str, arg: str, api_key: str, now_utc: datetime,
     reads happen here; any API hiccup becomes a friendly message, never a crash."""
     if cmd == "help":
         return HELP_TEXT, None
+    if cmd == "preview":
+        return _preview_message(), None
     try:
         if cmd in ("status", "next"):
             raw = tw.make_torn_fetcher(api_key, "bars,cooldowns,travel")("")
