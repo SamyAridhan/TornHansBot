@@ -8,6 +8,7 @@ name: torn-watch
 # skips a few crons, another fires within 2h and coverage stays continuous.
 # A push that touches this file also starts a run (used to restart immediately).
 # Public repo => unlimited Actions minutes, so the overlap is free.
+# Restarted to pick up: exact regen-clock timing + HTML-rich messages (2026-10-02).
 
 on:
   schedule:
