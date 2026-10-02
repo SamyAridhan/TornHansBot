@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import sys
 import random
@@ -117,6 +118,23 @@ def parse_snapshot(data: dict) -> dict:
             "maximum": _to_int(b.get("maximum")),
         }
 
+    def regen(name: str) -> dict:
+        # Torn's bars selection also returns the regen clock for each bar:
+        #   increment  - points gained per tick (energy 5, nerve 1, ...)
+        #   interval   - seconds between ticks (energy 900, nerve 300, ...)
+        #   ticktime   - seconds until the NEXT tick
+        #   fulltime   - seconds until the bar is full (0 if already full)
+        # We keep these separate from current/maximum so the existing snapshot
+        # shape (and its tests) is untouched, and use them to predict exact
+        # timing in messages.
+        b = data.get(name) or {}
+        return {
+            "increment": _to_int(b.get("increment")),
+            "interval": _to_int(b.get("interval")),
+            "ticktime": _to_int(b.get("ticktime")),
+            "fulltime": _to_int(b.get("fulltime")),
+        }
+
     cooldowns = data.get("cooldowns") or {}
     travel = data.get("travel") or {}
 
@@ -125,6 +143,12 @@ def parse_snapshot(data: dict) -> dict:
         "nerve": bar("nerve"),
         "happy": bar("happy"),
         "life": bar("life"),
+        "regen": {
+            "energy": regen("energy"),
+            "nerve": regen("nerve"),
+            "happy": regen("happy"),
+            "life": regen("life"),
+        },
         "cooldowns": {
             "drug": _to_int(cooldowns.get("drug")),
             "medical": _to_int(cooldowns.get("medical")),
@@ -143,6 +167,75 @@ def _to_int(v) -> int:
         return int(v)
     except (TypeError, ValueError):
         return 0
+
+
+# --------------------------------------------------------------------------
+# Timing math — use Torn's regen clock to predict EXACTLY when a bar reaches
+# a value, instead of guessing from how often we happen to poll.
+# --------------------------------------------------------------------------
+def seconds_to_value(current: int, target: int, regen: dict) -> Optional[int]:
+    """Seconds until `current` climbs to `target`, from Torn's regen fields.
+
+    Returns 0 if already at/above target, None if we can't tell (no regen
+    data yet). The bar gains `increment` points every `interval` seconds; the
+    next tick lands in `ticktime` seconds, so the maths is exact, not fuzzy.
+    """
+    if current >= target:
+        return 0
+    increment = regen.get("increment", 0)
+    interval = regen.get("interval", 0)
+    if increment <= 0 or interval <= 0:
+        return None
+    ticktime = regen.get("ticktime", 0)
+    need = target - current
+    ticks = math.ceil(need / increment)
+    # first tick arrives in ticktime (fall back to a full interval if unknown)
+    first = ticktime if ticktime > 0 else interval
+    return first + (ticks - 1) * interval
+
+
+def seconds_to_full(current: int, maximum: int, regen: dict) -> Optional[int]:
+    """Seconds until the bar is full. Prefers Torn's own `fulltime` field
+    (authoritative) and falls back to computing it from the regen clock."""
+    if maximum > 0 and current >= maximum:
+        return 0
+    fulltime = regen.get("fulltime", 0)
+    if fulltime > 0:
+        return fulltime
+    if maximum > 0:
+        return seconds_to_value(current, maximum, regen)
+    return None
+
+
+def fmt_duration(seconds: Optional[int]) -> str:
+    """Human-friendly compact duration: '42m', '1h 05m', '2h', '<1m'."""
+    if seconds is None:
+        return "?"
+    if seconds <= 0:
+        return "now"
+    if seconds < 60:
+        return "<1m"
+    mins = seconds // 60
+    if mins < 60:
+        return f"{mins}m"
+    hours, rem = divmod(mins, 60)
+    if rem == 0:
+        return f"{hours}h"
+    return f"{hours}h {rem:02d}m"
+
+
+def progress_bar(current: int, maximum: int, width: int = 5) -> str:
+    """A tiny block-character gauge, e.g. ▰▰▰▱▱."""
+    if maximum <= 0:
+        return "▱" * width
+    frac = max(0.0, min(1.0, current / maximum))
+    filled = int(round(frac * width))
+    return "▰" * filled + "▱" * (width - filled)
+
+
+def html_escape(s: str) -> str:
+    """Escape the three characters that matter for Telegram HTML parse_mode."""
+    return str(s).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
 # --------------------------------------------------------------------------
@@ -178,12 +271,16 @@ def evaluate(prev: Optional[dict], cur: dict, config: dict) -> tuple[list[dict],
         now_full = cur_bar.get("current", 0) >= cur_target
         was_full = prev_bar.get("current", 0) >= prev_target
         if now_full and not was_full:
+            cur_reg = cur.get("regen", {}).get(bar, {})
             events.append({
                 "type": f"{bar}_full",
                 "bar": bar,
                 "current": cur_bar.get("current", 0),
                 "maximum": cur_bar.get("maximum", 0),
                 "threshold": cur_target,
+                # time until the bar is actually capped (0 if threshold == max)
+                "eta_full": seconds_to_full(
+                    cur_bar.get("current", 0), cur_bar.get("maximum", 0), cur_reg),
             })
 
     # --- Bar "marks": crossing up to/over a set level (edge-triggered) ---
@@ -194,12 +291,17 @@ def evaluate(prev: Optional[dict], cur: dict, config: dict) -> tuple[list[dict],
         cur_v = cur.get(bar, {}).get("current", 0)
         prev_v = prev.get(bar, {}).get("current", 0)
         if cur_v >= mark and prev_v < mark:
+            cur_bar = cur.get(bar, {})
+            cur_reg = cur.get("regen", {}).get(bar, {})
             events.append({
                 "type": f"{bar}_mark",
                 "bar": bar,
                 "current": cur_v,
-                "maximum": cur.get(bar, {}).get("maximum", 0),
+                "maximum": cur_bar.get("maximum", 0),
                 "mark": mark,
+                # exact seconds until this bar is full, from Torn's regen clock
+                "eta_full": seconds_to_full(
+                    cur_v, cur_bar.get("maximum", 0), cur_reg),
             })
 
     # --- Bars increasing at all (test/verify mode — noisy) ---
@@ -240,76 +342,118 @@ def evaluate(prev: Optional[dict], cur: dict, config: dict) -> tuple[list[dict],
 
 
 # --------------------------------------------------------------------------
-# Message formatting — "Hans" has a laconic underworld-fixer voice, and picks
-# a random line each time so alerts don't read identically. Every energy line
-# contains "Energy", every nerve line "Nerve", etc. (keeps them greppable).
+# Message formatting — "Hans" has a laconic underworld-fixer voice. Each alert
+# is ONE rich line, rendered with Telegram's HTML parse_mode:
+#
+#     ⚡ <b>Energy's maxed — hit the gym before it spills</b>
+#        · <code>100/100</code> ▰▰▰▰▰
+#
+# A random flavor line keeps alerts from reading identically; the stat tail
+# (value, mini-gauge, and — for "mark" alerts — the exact "full in …" from
+# Torn's regen clock) is appended uniformly. Every energy line still contains
+# "Energy", every nerve line "Nerve", etc. (keeps them greppable + testable).
 # --------------------------------------------------------------------------
-_LINES = {
+_EMOJI = {
+    "energy_full": "⚡", "energy_mark": "⚡", "energy_increase": "⚡",
+    "nerve_full": "🔴", "nerve_mark": "🔴", "nerve_increase": "🔴",
+    "happy_full": "🙂",
+    "drug_cooldown_ended": "💊",
+    "medical_cooldown_ended": "🩹",
+    "booster_cooldown_ended": "🧪",
+    "travel_landed": "✈️",
+}
+
+_FLAVOR = {
     "energy_full": [
-        "⚡ Energy's maxed at {current}/{max}. Get to the gym before it spills.",
-        "⚡ Full tank — {current}/{max} Energy. Go move some iron, champ.",
-        "⚡ {current}/{max} Energy and nowhere to spend it. That's waste. Train.",
-        "⚡ Energy topped out ({current}/{max}). The weights are calling.",
+        "Energy's maxed — hit the gym before it spills",
+        "Full tank of Energy. Go move some iron, champ",
+        "Energy topped out and nowhere to spend it. That's waste — train",
+        "Energy's at the brim. The weights are calling",
+        "Capped on Energy. Any more and it just evaporates",
     ],
     "nerve_full": [
-        "🔴 Nerve's full ({current}/{max}). This city won't rob itself.",
-        "🔴 {current}/{max} Nerve — go make some poor life choices.",
-        "🔴 Full Nerve at {current}/{max}. Time to earn your reputation.",
-        "🔴 Nerve maxed ({current}/{max}). Somewhere, a crime is waiting.",
+        "Nerve's full — this city won't rob itself",
+        "Full Nerve. Go make some poor life choices",
+        "Nerve maxed out. Time to earn your reputation",
+        "Nerve's brimming — somewhere, a crime is waiting",
+        "All the Nerve you can hold. Put it to work",
     ],
     "happy_full": [
-        "🙂 Happy's maxed ({current}/{max}) — prime time to train hard.",
-        "🙂 {current}/{max} Happy. Your gains will thank you for it.",
+        "Happy's maxed — prime time to train hard",
+        "Happy is full. Your gains will thank you",
+        "Peak Happy. Hit the gym while it lasts",
     ],
     "energy_mark": [
-        "⚡ Energy's at {current}/{max} — enough to get moving.",
-        "⚡ {current}/{max} Energy in the tank. Time to spend some.",
+        "Energy's over the line — enough to get moving",
+        "Energy's stacked up. Time to spend some",
+        "Enough Energy in the tank to do real work",
     ],
     "nerve_mark": [
-        "🔴 Nerve's at {current}/{max} — enough for a job or two.",
-        "🔴 {current}/{max} Nerve banked. Go put it to work.",
+        "Nerve's over the line — enough for a job or two",
+        "Nerve banked. Go put it to work",
+        "Enough Nerve for some mischief",
     ],
     "energy_increase": [
-        "⚡ Energy ticking up — {current}/{max} (+{delta}).",
-        "⚡ +{delta} Energy, sitting at {current}/{max} now.",
+        "Energy ticking up",
+        "Energy on the rise",
     ],
     "nerve_increase": [
-        "🔴 Nerve creeping up — {current}/{max} (+{delta}).",
-        "🔴 +{delta} Nerve, now {current}/{max}.",
+        "Nerve creeping up",
+        "Nerve on the rise",
     ],
     "drug_cooldown_ended": [
-        "💊 Drug cooldown's up — you're clear to dose again.",
-        "💊 Cooldown cleared. The pharmacy's open, so to speak.",
+        "Drug cooldown's up — you're clear to dose again",
+        "Drug cooldown cleared. The pharmacy's open, so to speak",
+        "Off drug cooldown. Re-dose when you're ready",
     ],
     "medical_cooldown_ended": [
-        "🩹 Medical cooldown's up — patch kit's ready when you are.",
+        "Medical cooldown's up — patch kit's ready when you are",
+        "Off medical cooldown. The doc will see you now",
     ],
     "booster_cooldown_ended": [
-        "🧪 Booster cooldown cleared. Stock up.",
+        "Booster cooldown cleared. Stock up",
+        "Off booster cooldown — top yourself up",
     ],
     "travel_landed": [
-        "✈️ Touched down in {dest}. Try to stay out of the papers.",
-        "✈️ Landed in {dest} — business awaits.",
-        "✈️ You've arrived in {dest}. Watch your back.",
+        "Touched down in {dest}. Try to stay out of the papers",
+        "Landed in {dest} — business awaits",
+        "Arrived in {dest}. Watch your back",
     ],
 }
 
 
 def format_event(ev: dict) -> str:
+    """Render one event as a single HTML line for Telegram."""
     t = ev["type"]
-    lines = _LINES.get(t)
-    if not lines:
-        return f"Notice: {t}"
-    return random.choice(lines).format(
-        current=ev.get("current"),
-        max=ev.get("maximum"),
-        delta=ev.get("delta"),
-        dest=(ev.get("destination") or "your destination"),
-    )
+    pool = _FLAVOR.get(t)
+    emoji = _EMOJI.get(t, "•")
+    if not pool:
+        return f"• {html_escape(t)}"
+
+    dest = html_escape(ev.get("destination") or "your destination")
+    flavor = random.choice(pool).format(dest=dest)
+    head = f"{emoji} <b>{flavor}</b>"
+
+    # Bar events (energy/nerve/happy and variants) get a stat tail + mini-gauge.
+    cur = ev.get("current")
+    if ev.get("bar") and isinstance(cur, int):
+        mx = ev.get("maximum") or 0
+        gauge = progress_bar(cur, mx)
+        stat = f"<code>{cur}/{mx}</code>" if mx else f"<code>{cur}</code>"
+        tail = f"{stat} {gauge}"
+        delta = ev.get("delta")
+        if t.endswith("_increase") and isinstance(delta, int):
+            tail += f" <i>(+{delta})</i>"
+        eta = ev.get("eta_full")
+        if t.endswith("_mark") and eta:
+            tail += f" · full in <b>{fmt_duration(eta)}</b>"
+        return f"{head} · {tail}"
+
+    return head
 
 
 def format_message(events: list[dict]) -> str:
-    """One Telegram message covering all events from this poll."""
+    """One Telegram message covering all events from this poll (HTML parse_mode)."""
     lines = [format_event(e) for e in events]
     return "\n".join(lines)
 
@@ -351,7 +495,12 @@ def make_market_fetcher(api_key: str, item_id: str) -> HttpGet:
 def make_telegram_notifier(bot_token: str, chat_id: str) -> Notifier:
     def send(text: str) -> None:
         url = f"{TELEGRAM_API_BASE}/bot{bot_token}/sendMessage"
-        payload = json.dumps({"chat_id": chat_id, "text": text}).encode("utf-8")
+        payload = json.dumps({
+            "chat_id": chat_id,
+            "text": text,
+            "parse_mode": "HTML",
+            "disable_web_page_preview": True,
+        }).encode("utf-8")
         req = urllib.request.Request(
             url, data=payload,
             headers={"Content-Type": "application/json", "User-Agent": "torn-watch/1.0"},
@@ -404,14 +553,21 @@ def run_once(config: dict, fetcher: HttpGet, notifier: Notifier,
 # CLI entry point
 # --------------------------------------------------------------------------
 def _mock_payload() -> dict:
-    """A realistic sample payload for --dry-run (no key needed)."""
+    """A realistic sample payload for --dry-run (no key needed).
+
+    Bars sit just past their marks (25 energy / 10 nerve) and carry regen
+    fields, so the dry-run shows the 'mark' alerts with an exact 'full in …'.
+    """
     return {
-        "energy": {"current": 100, "maximum": 100},
-        "nerve": {"current": 25, "maximum": 25},
-        "happy": {"current": 4000, "maximum": 5000},
+        "energy": {"current": 30, "maximum": 100,
+                   "increment": 5, "interval": 900, "ticktime": 300, "fulltime": 12600},
+        "nerve": {"current": 12, "maximum": 25,
+                  "increment": 1, "interval": 300, "ticktime": 120, "fulltime": 3720},
+        "happy": {"current": 4000, "maximum": 5000,
+                  "increment": 5, "interval": 300, "ticktime": 60, "fulltime": 59760},
         "life": {"current": 175, "maximum": 175},
         "cooldowns": {"drug": 0, "medical": 0, "booster": 0},
-        "travel": {"time_left": 0, "destination": ""},
+        "travel": {"time_left": 0, "destination": "Switzerland"},
     }
 
 
@@ -531,10 +687,28 @@ def main(argv=None) -> int:
             return 3
         print("=== RAW payload from Torn ===")
         print(json.dumps(raw, indent=2))
+        snap = parse_snapshot(raw)
         print("\n=== PARSED snapshot (what the rules use) ===")
-        print(json.dumps(parse_snapshot(raw), indent=2))
+        print(json.dumps(snap, indent=2))
+        # Prove the exact-timing math against live regen fields.
+        print("\n=== EXACT TIMING (from Torn's regen clock) ===")
+        cfg_marks = config.get("marks", {})
+        for bar in ("energy", "nerve"):
+            b = snap.get(bar, {})
+            reg = snap.get("regen", {}).get(bar, {})
+            cur_v, mx = b.get("current", 0), b.get("maximum", 0)
+            full = seconds_to_full(cur_v, mx, reg)
+            line = (f"{bar:>6}: {cur_v}/{mx}  "
+                    f"regen {reg.get('increment')}/{reg.get('interval')}s  "
+                    f"full in {fmt_duration(full)}")
+            mark = cfg_marks.get(bar)
+            if mark is not None:
+                to_mark = seconds_to_value(cur_v, mark, reg)
+                line += f"  | reaches {mark} in {fmt_duration(to_mark)}"
+            print(line)
         print("\nIf the parsed snapshot shows 0s where the raw payload has real "
-              "numbers, a field name needs adjusting in parse_snapshot().")
+              "numbers, a field name needs adjusting in parse_snapshot(). If the "
+              "timing line shows '?', the regen fields weren't in the payload.")
         return 0
 
     prev_state = load_state(args.state)
@@ -584,10 +758,13 @@ def main(argv=None) -> int:
     save_state(args.state, new_state)
     en = new_state.get("energy", {})
     nv = new_state.get("nerve", {})
+    reg = new_state.get("regen", {})
+    e_full = seconds_to_full(en.get("current", 0), en.get("maximum", 0), reg.get("energy", {}))
+    n_full = seconds_to_full(nv.get("current", 0), nv.get("maximum", 0), reg.get("nerve", {}))
     inc = "on" if config["alerts"].get("energy_increase") else "off"
     print(f"[diag] prev_state={'loaded' if prev_state else 'NONE(first-run/baseline)'} "
-          f"| energy={en.get('current')}/{en.get('maximum')} "
-          f"nerve={nv.get('current')}/{nv.get('maximum')} "
+          f"| energy={en.get('current')}/{en.get('maximum')} (full in {fmt_duration(e_full)}) "
+          f"nerve={nv.get('current')}/{nv.get('maximum')} (full in {fmt_duration(n_full)}) "
           f"| increase_mode={inc} | alerts_sent={len(events)}")
     print(f"Polled OK. {len(events)} alert(s) sent.")
     return 0

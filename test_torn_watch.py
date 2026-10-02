@@ -233,6 +233,85 @@ class RunOnceTests(unittest.TestCase):
         self.assertIsNotNone(state)
 
 
+class TimingTests(unittest.TestCase):
+    """Exact regen-clock math (the 'smarter option')."""
+
+    def test_parse_captures_regen(self):
+        raw = {"energy": {"current": 30, "maximum": 100,
+                          "increment": 5, "interval": 900,
+                          "ticktime": 300, "fulltime": 12600}}
+        s = tw.parse_snapshot(raw)
+        # bar dict stays exactly current/maximum (back-compat)
+        self.assertEqual(s["energy"], {"current": 30, "maximum": 100})
+        # regen lives in its own sub-dict
+        self.assertEqual(s["regen"]["energy"]["increment"], 5)
+        self.assertEqual(s["regen"]["energy"]["fulltime"], 12600)
+
+    def test_seconds_to_value_exact(self):
+        reg = {"increment": 5, "interval": 900, "ticktime": 0}
+        # 0 -> 25 is 5 ticks; first tick in a full interval (ticktime unknown)
+        self.assertEqual(tw.seconds_to_value(0, 25, reg), 900 + 4 * 900)
+
+    def test_seconds_to_value_uses_ticktime(self):
+        reg = {"increment": 1, "interval": 300, "ticktime": 120}
+        # 12 -> 13 is 1 tick, arriving in ticktime
+        self.assertEqual(tw.seconds_to_value(12, 13, reg), 120)
+
+    def test_seconds_to_value_already_there(self):
+        self.assertEqual(tw.seconds_to_value(30, 25, {"increment": 5, "interval": 900}), 0)
+
+    def test_seconds_to_value_no_regen_returns_none(self):
+        self.assertIsNone(tw.seconds_to_value(0, 25, {}))
+
+    def test_seconds_to_full_prefers_fulltime(self):
+        reg = {"increment": 5, "interval": 900, "ticktime": 300, "fulltime": 12600}
+        self.assertEqual(tw.seconds_to_full(30, 100, reg), 12600)
+
+    def test_seconds_to_full_when_capped(self):
+        self.assertEqual(tw.seconds_to_full(100, 100, {"fulltime": 0}), 0)
+
+    def test_fmt_duration(self):
+        self.assertEqual(tw.fmt_duration(0), "now")
+        self.assertEqual(tw.fmt_duration(30), "<1m")
+        self.assertEqual(tw.fmt_duration(42 * 60), "42m")
+        self.assertEqual(tw.fmt_duration(3720), "1h 02m")
+        self.assertEqual(tw.fmt_duration(7200), "2h")
+        self.assertEqual(tw.fmt_duration(None), "?")
+
+    def test_progress_bar(self):
+        self.assertEqual(tw.progress_bar(100, 100), "▰▰▰▰▰")
+        self.assertEqual(tw.progress_bar(0, 100), "▱▱▱▱▱")
+        self.assertEqual(tw.progress_bar(10, 0), "▱▱▱▱▱")  # unknown max
+
+    def test_mark_event_carries_eta(self):
+        cfg = tw.default_config()
+        raw_prev = {"energy": {"current": 0, "maximum": 100}}
+        raw_cur = {"energy": {"current": 30, "maximum": 100,
+                              "increment": 5, "interval": 900,
+                              "ticktime": 300, "fulltime": 12600}}
+        prev = tw.parse_snapshot(raw_prev)
+        cur = tw.parse_snapshot(raw_cur)
+        events, _ = tw.evaluate(prev, cur, cfg)
+        mark = [e for e in events if e["type"] == "energy_mark"]
+        self.assertTrue(mark)
+        self.assertEqual(mark[0]["eta_full"], 12600)
+
+    def test_mark_message_shows_full_in(self):
+        ev = {"type": "energy_mark", "bar": "energy", "current": 30,
+              "maximum": 100, "mark": 25, "eta_full": 12600}
+        msg = tw.format_event(ev)
+        self.assertIn("full in", msg)
+        self.assertIn("3h 30m", msg)
+        self.assertIn("Energy", msg)
+
+    def test_messages_are_html_safe(self):
+        # destination with an & must be escaped for HTML parse_mode
+        ev = {"type": "travel_landed", "destination": "Tom & Jerry Land"}
+        msg = tw.format_event(ev)
+        self.assertIn("&amp;", msg)
+        self.assertNotIn("& ", msg)
+
+
 class TornApiErrorTests(unittest.TestCase):
     def test_fetcher_raises_on_api_error(self):
         # Simulate what make_torn_fetcher does with an error payload,

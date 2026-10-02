@@ -157,12 +157,19 @@ def append_history(path: str, timestamp: str, stats: dict, nnb: int) -> None:
 # --------------------------------------------------------------------------
 # Message formatting for Tier 2 events
 # --------------------------------------------------------------------------
+def _esc(s) -> str:
+    """Escape the characters that matter for Telegram HTML parse_mode."""
+    return str(s).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
 def format_tier2_event(ev: dict) -> str:
+    """Render a Tier-2 event as a single HTML line (matches Tier-1 styling)."""
     t = ev["type"]
     if t == "market_deal":
-        return (f"🛒 Deal: {ev['name']} listed at ${ev['price']:,} "
-                f"(target ${ev['target']:,}).")
+        return (f"🛒 <b>Deal: {_esc(ev['name'])}</b> · "
+                f"<code>${ev['price']:,}</code> "
+                f"<i>(target ${ev['target']:,})</i>")
     if t == "oc_slot":
-        return (f"🎯 OC slot open: {ev['scenario']} — {ev['role']} "
-                f"(your CPR {ev['cpr']}%).")
-    return f"Notice: {t}"
+        return (f"🎯 <b>OC slot open — {_esc(ev['role'])}</b> · "
+                f"{_esc(ev['scenario'])} · your CPR <b>{ev['cpr']}%</b>")
+    return f"• {_esc(t)}"
