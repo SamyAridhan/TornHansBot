@@ -324,14 +324,16 @@ def refresh_pin(api_key: str, bot_token: str, chat_id: str, tz_offset: int) -> N
         if not r.get("ok"):
             desc = (r.get("description") or "").lower()
             if "not modified" in desc:
-                _save_pin({"message_id": mid, "last_text": text})
+                st.update({"message_id": mid, "last_text": text})
+                _save_pin(st)
                 return
             mid = _send_and_pin(bot_token, chat_id, text)  # gone — recreate
     else:
         mid = _send_and_pin(bot_token, chat_id, text)
 
     if mid:
-        _save_pin({"message_id": mid, "last_text": text})
+        st.update({"message_id": mid, "last_text": text})
+        _save_pin(st)
 
 
 # --------------------------------------------------------------------------
@@ -448,6 +450,23 @@ def main(argv=None) -> int:
         return 2
 
     set_my_commands(bot_token)
+
+    # One-time: clear the old persistent button bar left by earlier versions so
+    # Android's Back button behaves (the menu is inline now). Flag persists in
+    # pin_state.json so we don't nag on every restart.
+    _pin_state = _load_pin()
+    if not _pin_state.get("kbd_cleared"):
+        try:
+            _tg_call(bot_token, "sendMessage", {
+                "chat_id": chat_id,
+                "text": "🔘 Menu buttons now attach to messages (and the pinned report), "
+                        "so your Back button works normally again.",
+                "reply_markup": {"remove_keyboard": True},
+            })
+        except Exception as e:  # noqa: BLE001
+            print(f"[bot] keyboard clear failed (non-fatal): {e}", file=sys.stderr)
+        _pin_state["kbd_cleared"] = True
+        _save_pin(_pin_state)
 
     if args.hello:
         send_reply(bot_token, chat_id,
