@@ -636,30 +636,31 @@ def format_event(ev: dict) -> str:
     )
     head = f"{emoji} <b>{flavor}</b>"
 
-    # Bar events (energy/nerve/happy and variants) get a stat tail + mini-gauge.
+    # Bar events (energy/nerve/happy and variants) get a second line: the
+    # value, the gauge, and the timing — kept short so it never wraps.
     cur = ev.get("current")
     if ev.get("bar") and isinstance(cur, int):
         mx = ev.get("maximum") or 0
         gauge = progress_bar(cur, mx)
         stat = f"<code>{cur}/{mx}</code>" if mx else f"<code>{cur}</code>"
-        tail = f"{stat} {gauge}"
+        detail = f"{stat} {gauge}"
         delta = ev.get("delta")
         if t.endswith("_increase") and isinstance(delta, int):
-            tail += f" <i>(+{delta})</i>"
+            detail += f" <i>(+{delta})</i>"
         eta = ev.get("eta_full")
         if t.endswith("_mark") and eta:
-            tail += f" · full in <b>{fmt_duration(eta)}</b>"
+            detail += f" · full in <b>{fmt_duration_compact(eta)}</b>"
         elif t == "energy_overflow" and eta:
-            tail += f" · caps in <b>{fmt_duration(eta)}</b>"
-        return f"{head} · {tail}"
+            detail += f" · caps in <b>{fmt_duration_compact(eta)}</b>"
+        return f"{head}\n{detail}"
 
     return head
 
 
 def format_message(events: list[dict]) -> str:
-    """One Telegram message covering all events from this poll (HTML parse_mode)."""
-    lines = [format_event(e) for e in events]
-    return "\n".join(lines)
+    """One Telegram message covering all events from this poll (HTML parse_mode).
+    A blank line separates events so multiple alerts stay readable."""
+    return "\n\n".join(format_event(e) for e in events)
 
 
 # --------------------------------------------------------------------------

@@ -11,6 +11,7 @@ name: torn-watch
 # Restarted to pick up: exact regen-clock timing + HTML-rich messages (2026-10-02).
 # Restarted again for Phase 2 smarter alerts + quiet hours (2026-10-02).
 # Switched to adaptive --loop timing (2026-10-02).
+# Restart for two-line alert formatting (2026-10-02).
 
 on:
   schedule:

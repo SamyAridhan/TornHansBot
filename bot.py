@@ -69,16 +69,25 @@ COMMAND_MENU = [
 ]
 
 HELP_TEXT = (
-    "🗂 <b>Hans at your service.</b> Tap a button or type a command:\n\n"
-    "📊 <b>/status</b> — your bars, cooldowns and travel right now, each with "
-    "the exact time to full.\n"
-    "💪 <b>/stats</b> — strength/defense/speed/dexterity, total, and how much "
-    "you've gained since the last log.\n"
-    "⏱ <b>/next</b> — when Energy and Nerve hit full (countdown + local clock).\n"
-    "💰 <b>/price &lt;item_id&gt;</b> — cheapest market listing for an item. "
-    "Find the id in the item's market URL. e.g. <code>/price 206</code>\n"
-    "❓ <b>/help</b> — this menu.\n\n"
-    "<i>I only ever read your data — you still make every move in-game.</i>"
+    "🗂 <b>Hans at your service</b>\n"
+    "Tap a button or type a command.\n"
+    "\n"
+    "📊 <b>/status</b>\n"
+    "Bars, cooldowns &amp; travel — each with time to full.\n"
+    "\n"
+    "💪 <b>/stats</b>\n"
+    "STR / DEF / SPD / DEX, total, and gain since last log.\n"
+    "\n"
+    "⏱ <b>/next</b>\n"
+    "When energy &amp; nerve hit full (countdown + clock).\n"
+    "\n"
+    "💰 <b>/price</b> <code>&lt;id&gt;</code>\n"
+    "Cheapest market listing. e.g. <code>/price 206</code>\n"
+    "\n"
+    "❓ <b>/help</b>\n"
+    "This menu.\n"
+    "\n"
+    "<i>I only read your data — you make every move.</i>"
 )
 
 

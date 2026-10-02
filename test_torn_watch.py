@@ -197,13 +197,13 @@ class FormatTests(unittest.TestCase):
 
     def test_combined_message(self):
         events = [
-            {"type": "energy_full", "current": 100, "maximum": 100},
-            {"type": "nerve_full", "current": 25, "maximum": 25},
+            {"type": "energy_full", "bar": "energy", "current": 100, "maximum": 100},
+            {"type": "nerve_full", "bar": "nerve", "current": 25, "maximum": 25},
         ]
         msg = tw.format_message(events)
         self.assertIn("Energy", msg)
         self.assertIn("Nerve", msg)
-        self.assertEqual(len(msg.splitlines()), 2)
+        self.assertIn("\n\n", msg)   # blank line separates the two events
 
 
 class RunOnceTests(unittest.TestCase):
@@ -301,7 +301,7 @@ class TimingTests(unittest.TestCase):
               "maximum": 100, "mark": 25, "eta_full": 12600}
         msg = tw.format_event(ev)
         self.assertIn("full in", msg)
-        self.assertIn("3h 30m", msg)
+        self.assertIn("3h30m", msg)
         self.assertIn("Energy", msg)
 
     def test_messages_are_html_safe(self):
