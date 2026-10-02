@@ -40,9 +40,18 @@ import tier2
 TELEGRAM_API_BASE = "https://api.telegram.org"
 DEFAULT_TZ_OFFSET = 8  # Asia/Singapore (UTC+8); override with TZ_OFFSET_HOURS
 
-# Tap-buttons (persistent reply keyboard). Taps arrive as plain text equal to
-# the label, so we map label -> command and route them exactly like typed cmds.
-BUTTONS = [["📊 Status", "💪 Stats"], ["⏱ Next full", "❓ Help"]]
+# Inline buttons (attached to messages, not a bar above the input). Unlike a
+# reply keyboard, these don't hijack Android's Back button, and they ride along
+# on every reply and on the pinned dashboard. Taps arrive as callback_query
+# with the callback_data below, routed through parse_command like typed cmds.
+MENU_INLINE = {"inline_keyboard": [
+    [{"text": "📊 Status", "callback_data": "status"},
+     {"text": "💪 Stats", "callback_data": "stats"}],
+    [{"text": "⏱ Next full", "callback_data": "next"},
+     {"text": "❓ Help", "callback_data": "help"}],
+]}
+
+# Legacy label->command map (old reply-keyboard taps still parse harmlessly).
 _LABEL_TO_CMD = {
     "📊 Status": "status",
     "💪 Stats": "stats",
@@ -235,14 +244,18 @@ def send_reply(bot_token: str, chat_id: str, text: str, with_keyboard: bool = Tr
         "disable_web_page_preview": True,
     }
     if with_keyboard:
-        payload["reply_markup"] = {
-            "keyboard": BUTTONS, "resize_keyboard": True, "is_persistent": True,
-        }
+        payload["reply_markup"] = MENU_INLINE
     _tg_call(bot_token, "sendMessage", payload)
 
 
+def answer_callback(bot_token: str, cq_id: str) -> None:
+    """Acknowledge a button tap so Telegram stops its loading spinner."""
+    _tg_call(bot_token, "answerCallbackQuery", {"callback_query_id": cq_id})
+
+
 def get_updates(bot_token: str, offset: Optional[int], timeout: int = 30) -> list[dict]:
-    params = {"timeout": timeout, "allowed_updates": json.dumps(["message"])}
+    params = {"timeout": timeout,
+              "allowed_updates": json.dumps(["message", "callback_query"])}
     if offset is not None:
         params["offset"] = offset
     url = f"{TELEGRAM_API_BASE}/bot{bot_token}/getUpdates?{urllib.parse.urlencode(params)}"
@@ -281,6 +294,7 @@ def _send_and_pin(bot_token: str, chat_id: str, text: str) -> Optional[int]:
     r = _tg_call(bot_token, "sendMessage", {
         "chat_id": chat_id, "text": text,
         "parse_mode": "HTML", "disable_web_page_preview": True,
+        "reply_markup": MENU_INLINE,
     })
     mid = (r.get("result") or {}).get("message_id")
     if mid:
@@ -305,6 +319,7 @@ def refresh_pin(api_key: str, bot_token: str, chat_id: str, tz_offset: int) -> N
         r = _tg_call(bot_token, "editMessageText", {
             "chat_id": chat_id, "message_id": mid, "text": text,
             "parse_mode": "HTML", "disable_web_page_preview": True,
+            "reply_markup": MENU_INLINE,
         })
         if not r.get("ok"):
             desc = (r.get("description") or "").lower()
@@ -470,10 +485,26 @@ def main(argv=None) -> int:
 
         for u in updates:
             offset = u["update_id"] + 1
-            msg = u.get("message") or {}
-            if str((msg.get("chat") or {}).get("id")) != str(chat_id):
+            # Normalise a message or a button tap into (from_chat, text, cq_id).
+            text, cq_id, from_chat = None, None, None
+            if "message" in u:
+                m = u["message"]
+                from_chat = (m.get("chat") or {}).get("id")
+                text = m.get("text", "")
+            elif "callback_query" in u:
+                cq = u["callback_query"]
+                cq_id = cq.get("id")
+                from_chat = ((cq.get("message") or {}).get("chat") or {}).get("id")
+                text = cq.get("data", "")
+            else:
+                continue
+
+            if cq_id:
+                answer_callback(bot_token, cq_id)  # stop the button spinner
+            if str(from_chat) != str(chat_id):
                 continue  # only answer the owner
-            cmd, arg = parse_command(msg.get("text", ""))
+
+            cmd, arg = parse_command(text or "")
             if cmd is None:
                 send_reply(bot_token, chat_id,
                            "🤷 Didn't catch that. Tap a button or try /help.")
