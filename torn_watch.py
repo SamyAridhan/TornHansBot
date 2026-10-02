@@ -646,18 +646,21 @@ def make_torn_fetcher(api_key: str, selections: str = DEFAULT_SELECTIONS) -> Htt
 
 
 def make_market_fetcher(api_key: str, item_id: str) -> HttpGet:
-    """Fetch one item's market listings (Torn v1 market selection). The exact
-    JSON shape is confirmed with --check-market before the watcher relies on it;
-    tier2.parse_market handles the known shapes defensively."""
+    """Fetch one item's market listings via Torn API v2.
+
+    The old v1 'itemmarket' selection was retired ("only available in API v2"),
+    so we hit GET /v2/market/{id}/itemmarket. Listings still carry price/amount;
+    tier2.parse_market handles the shape defensively."""
     def fetch(_ignored: str = "") -> dict:
-        params = urllib.parse.urlencode({"selections": "itemmarket", "key": api_key})
-        url = f"{TORN_API_BASE}/market/{item_id}?{params}"
-        req = urllib.request.Request(url, headers={"User-Agent": "torn-watch/1.0"})
+        params = urllib.parse.urlencode({"key": api_key})
+        url = f"{TORN_API_BASE}/v2/market/{item_id}/itemmarket?{params}"
+        req = urllib.request.Request(
+            url, headers={"User-Agent": "torn-watch/1.0", "Accept": "application/json"})
         with urllib.request.urlopen(req, timeout=30) as resp:
             data = json.loads(resp.read().decode("utf-8"))
         if isinstance(data, dict) and "error" in data:
-            err = data["error"]
-            raise TornApiError(err.get("code"), err.get("error"))
+            err = data["error"] or {}
+            raise TornApiError(err.get("code"), err.get("error") or err.get("message"))
         return data
     return fetch
 

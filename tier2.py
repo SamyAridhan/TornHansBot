@@ -38,7 +38,7 @@ def parse_market(raw: dict) -> Optional[int]:
     """
     im = raw.get("itemmarket", raw.get("bazaar"))
     if im is None:
-        return None
+        im = raw   # v2 may return listings at the top level
     listings = im.get("listings") if isinstance(im, dict) else im
     if not isinstance(listings, list) or not listings:
         return None

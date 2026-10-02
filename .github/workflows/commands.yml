@@ -17,6 +17,8 @@ on:
     paths:
       - ".github/workflows/commands.yml"
       - "bot.py"
+      - "torn_watch.py"   # bot reuses its fetchers/formatters
+      - "tier2.py"
 
 concurrency:
   group: torn-commands

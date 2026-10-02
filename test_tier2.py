@@ -22,6 +22,16 @@ class MarketParseTests(unittest.TestCase):
         self.assertIsNone(tier2.parse_market({}))
         self.assertIsNone(tier2.parse_market({"itemmarket": {"listings": []}}))
 
+    def test_v2_shape_with_amount(self):
+        raw = {"itemmarket": {"item": {"id": 206, "name": "Xanax"},
+                              "listings": [{"price": 830000, "amount": 3},
+                                           {"price": 815000, "amount": 1}]}}
+        self.assertEqual(tier2.parse_market(raw), 815000)
+
+    def test_v2_listings_top_level(self):
+        raw = {"listings": [{"price": 500, "amount": 2}]}
+        self.assertEqual(tier2.parse_market(raw), 500)
+
     def test_ignores_bad_entries(self):
         raw = {"itemmarket": {"listings": [{"price": None}, {"nope": 1}, {"price": 500}]}}
         self.assertEqual(tier2.parse_market(raw), 500)
