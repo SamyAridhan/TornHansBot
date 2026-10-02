@@ -1,0 +1,33 @@
+name: torn-digest
+
+# One friendly morning message: stat gain, gains streak, 7-day trend, your
+# bars, and a Hans line of the day. Reads the committed history.csv, so it's
+# cheap. Runs ~08:52 local (00:52 UTC); minute offset avoids the top-of-hour
+# scheduler crush.
+
+on:
+  schedule:
+    - cron: "52 0 * * *"
+  workflow_dispatch: {}
+
+concurrency:
+  group: torn-digest
+  cancel-in-progress: false
+
+jobs:
+  digest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Send daily digest
+        env:
+          TORN_API_KEY: ${{ secrets.TORN_API_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TZ_OFFSET_HOURS: ${{ vars.TZ_OFFSET_HOURS }}
+        run: python3 digest.py

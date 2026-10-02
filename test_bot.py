@@ -55,10 +55,10 @@ class FormatStatusTests(unittest.TestCase):
         self.assertIn("Energy", msg)
         self.assertIn("Nerve", msg)
         self.assertIn("Happy", msg)
-        self.assertIn("full in 3h 30m", msg)   # energy eta
+        self.assertIn("3h30m", msg)            # energy eta (compact, no wrap)
         self.assertIn("full", msg)             # nerve already full
-        self.assertIn("Med", msg)              # cooldown row
-        self.assertIn("12m", msg)              # medical 720s
+        self.assertIn("<pre>", msg)            # aligned monospace table
+        self.assertIn("Med 12m", msg)          # only the still-ticking cooldown
 
     def test_travel_line_only_when_travelling(self):
         self.assertNotIn("transit", bot.format_status(self.snap, self.now))
@@ -76,7 +76,7 @@ class FormatNextTests(unittest.TestCase):
             "nerve": {"current": 25, "maximum": 25},
         })
         msg = bot.format_next(snap, now, tz_offset=8)
-        self.assertIn("3h 30m", msg)
+        self.assertIn("3h30m", msg)
         self.assertIn("19:10", msg)        # 15:40 + 3h30m
         self.assertIn("already full", msg)  # nerve
 

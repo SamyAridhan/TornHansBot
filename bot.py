@@ -107,51 +107,59 @@ def parse_command(text: str) -> tuple[Optional[str], str]:
 # --------------------------------------------------------------------------
 # Pure formatting
 # --------------------------------------------------------------------------
-def _bar_line(emoji: str, label: str, b: dict, reg: dict) -> str:
+def _bar_row(emoji: str, label: str, b: dict, reg: dict) -> str:
+    """One aligned row for the monospace status table (no wrapping)."""
     cur = b.get("current", 0)
     mx = b.get("maximum", 0)
-    gauge = tw.progress_bar(cur, mx)
-    full = tw.seconds_to_full(cur, mx, reg)
-    tail = "full" if (mx and cur >= mx) else f"full in {tw.fmt_duration(full)}"
-    return f"{emoji} <b>{label:<6}</b> <code>{cur}/{mx}</code> {gauge} · {tail}"
-
-
-def _cooldown_word(seconds: int) -> str:
-    return "ready" if seconds <= 0 else tw.fmt_duration(seconds)
+    value = f"{cur}/{mx}"
+    if mx and cur >= mx:
+        tail = "full"
+    else:
+        tail = tw.fmt_duration_compact(tw.seconds_to_full(cur, mx, reg))
+    # label padded to 6, value right-padded to 7 -> columns line up in <pre>
+    return f"{emoji} {label:<6}{value:>8}  {tail}"
 
 
 def format_status(snapshot: dict, now_utc: datetime, tz_offset: int = DEFAULT_TZ_OFFSET) -> str:
     reg = snapshot.get("regen", {})
     local = now_utc + timedelta(hours=tz_offset)
-    lines = [f"🗂 <b>Hans Report</b> · {local:%H:%M}", ""]
-    lines.append(_bar_line("⚡", "Energy", snapshot.get("energy", {}), reg.get("energy", {})))
-    lines.append(_bar_line("🔴", "Nerve", snapshot.get("nerve", {}), reg.get("nerve", {})))
-    lines.append(_bar_line("🙂", "Happy", snapshot.get("happy", {}), reg.get("happy", {})))
-    lines.append(_bar_line("❤️", "Life", snapshot.get("life", {}), reg.get("life", {})))
+    rows = [
+        _bar_row("⚡", "Energy", snapshot.get("energy", {}), reg.get("energy", {})),
+        _bar_row("🔴", "Nerve", snapshot.get("nerve", {}), reg.get("nerve", {})),
+        _bar_row("🙂", "Happy", snapshot.get("happy", {}), reg.get("happy", {})),
+        _bar_row("❤️", "Life", snapshot.get("life", {}), reg.get("life", {})),
+    ]
+    out = [f"🗂 <b>Hans Report</b> · {local:%H:%M}", "<pre>" + "\n".join(rows) + "</pre>"]
+
+    # Cooldowns: only name the ones still ticking; otherwise one short line.
     cd = snapshot.get("cooldowns", {})
-    lines += ["", (f"💊 Drug <code>{_cooldown_word(cd.get('drug', 0))}</code>  ·  "
-                   f"🩹 Med <code>{_cooldown_word(cd.get('medical', 0))}</code>  ·  "
-                   f"🧪 Boost <code>{_cooldown_word(cd.get('booster', 0))}</code>")]
+    busy = []
+    for key, name in (("drug", "Drug"), ("medical", "Med"), ("booster", "Boost")):
+        secs = cd.get(key, 0)
+        if secs > 0:
+            busy.append(f"{name} {tw.fmt_duration_compact(secs)}")
+    out.append("⏲ Cooldowns: " + ("all clear ✅" if not busy else " · ".join(busy)))
+
     tv = snapshot.get("travel", {})
     if tv.get("time_left", 0) > 0:
         dest = tw.html_escape(tv.get("destination") or "somewhere")
-        lines.append(f"✈️ In transit to <b>{dest}</b> · lands in {tw.fmt_duration(tv['time_left'])}")
-    return "\n".join(lines)
+        out.append(f"✈️ To <b>{dest}</b> · lands {tw.fmt_duration_compact(tv['time_left'])}")
+    return "\n".join(out)
 
 
 def format_next(snapshot: dict, now_utc: datetime, tz_offset: int = DEFAULT_TZ_OFFSET) -> str:
     reg = snapshot.get("regen", {})
-    out = ["⏱ <b>Next full</b>", ""]
+    out = ["⏱ <b>Next full</b>"]
     for emoji, label, key in (("⚡", "Energy", "energy"), ("🔴", "Nerve", "nerve")):
         b = snapshot.get(key, {})
         cur, mx = b.get("current", 0), b.get("maximum", 0)
         secs = tw.seconds_to_full(cur, mx, reg.get(key, {}))
         if mx and cur >= mx:
-            out.append(f"{emoji} <b>{label}</b> is already full ({cur}/{mx})")
+            out.append(f"{emoji} <b>{label}</b> — already full ({cur}/{mx})")
         elif secs:
             clock = now_utc + timedelta(hours=tz_offset, seconds=secs)
-            out.append(f"{emoji} <b>{label}</b> full in {tw.fmt_duration(secs)} "
-                       f"(≈ {clock:%H:%M}) · now {cur}/{mx}")
+            out.append(f"{emoji} <b>{label}</b> {cur}/{mx} — "
+                       f"{tw.fmt_duration_compact(secs)} (≈{clock:%H:%M})")
         else:
             out.append(f"{emoji} <b>{label}</b> {cur}/{mx}")
     return "\n".join(out)

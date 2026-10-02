@@ -292,6 +292,21 @@ def fmt_duration(seconds: Optional[int]) -> str:
     return f"{hours}h {rem:02d}m"
 
 
+def fmt_duration_compact(seconds: Optional[int]) -> str:
+    """Tight duration with no spaces, for aligned tables: '4h10m', '35m', 'now'."""
+    if seconds is None:
+        return "?"
+    if seconds <= 0:
+        return "now"
+    if seconds < 60:
+        return "<1m"
+    mins = seconds // 60
+    if mins < 60:
+        return f"{mins}m"
+    hours, rem = divmod(mins, 60)
+    return f"{hours}h" if rem == 0 else f"{hours}h{rem:02d}m"
+
+
 def progress_bar(current: int, maximum: int, width: int = 5) -> str:
     """A tiny block-character gauge, e.g. ▰▰▰▱▱."""
     if maximum <= 0:
