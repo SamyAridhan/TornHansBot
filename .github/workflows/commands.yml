@@ -1,0 +1,58 @@
+name: torn-commands
+
+# Two-way command bot: long-polls Telegram so /status, /stats, /next, /price
+# get answered in near real time. Same reliability trick as the poller — runs
+# overlap so a skipped cron can't leave a gap:
+#   - bot.py long-polls for ~5h (BOT_RUN_SECONDS) then exits,
+#   - a fresh run is asked for every 2h,
+#   - the concurrency guard makes a new run wait, then take over on exit.
+# Public repo => unlimited Actions minutes, so the overlap is free.
+# A push that touches this file restarts the bot immediately.
+
+on:
+  schedule:
+    - cron: "19 */2 * * *"     # offset from the poller's :08 so they don't collide
+  workflow_dispatch: {}
+  push:
+    paths:
+      - ".github/workflows/commands.yml"
+      - "bot.py"
+
+concurrency:
+  group: torn-commands
+  cancel-in-progress: false
+
+jobs:
+  listen:
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Restore command offset
+        uses: actions/cache/restore@v4
+        with:
+          path: commands_state.json
+          key: torn-cmd-${{ github.run_id }}
+          restore-keys: |
+            torn-cmd-
+
+      - name: Listen for commands (~5h)
+        env:
+          TORN_API_KEY: ${{ secrets.TORN_API_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TZ_OFFSET_HOURS: ${{ vars.TZ_OFFSET_HOURS }}
+          BOT_RUN_SECONDS: "18000"
+        run: python3 bot.py
+
+      - name: Save command offset
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: commands_state.json
+          key: torn-cmd-${{ github.run_id }}
