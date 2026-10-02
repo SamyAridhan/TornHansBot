@@ -22,7 +22,11 @@ on:
 
 concurrency:
   group: torn-commands
-  cancel-in-progress: false
+  # Commands are on-demand, so a few-seconds restart gap is harmless. Letting a
+  # new run replace the current one means a push deploys instantly — no manual
+  # cancel needed. (The poller keeps cancel-in-progress:false to never drop an
+  # alert edge.)
+  cancel-in-progress: true
 
 jobs:
   listen:
