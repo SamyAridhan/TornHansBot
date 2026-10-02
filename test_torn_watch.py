@@ -411,6 +411,45 @@ class SmarterAlertTests(unittest.TestCase):
             {"type": "milestone", "value": 50_000, "total": 60_000}))
 
 
+class AdaptiveSleepTests(unittest.TestCase):
+    def setUp(self):
+        self.cfg = tw.default_config()  # marks energy 25, nerve 10
+
+    def _snap(self, e=(20, 100, 900, 300, 300, 16200), n=(8, 25, 1, 300, 60, 5100)):
+        def bar(t):
+            c, m, inc, iv, tt, ft = t
+            return {"current": c, "maximum": m, "increment": inc,
+                    "interval": iv, "ticktime": tt, "fulltime": ft}
+        return tw.parse_snapshot({"energy": bar(e), "nerve": bar(n)})
+
+    def test_sleeps_until_sooner_mark(self):
+        # energy 20->25 needs 1 tick; nerve 8->10 needs 2 ticks
+        # energy: ticktime 300 -> reaches 25 at +300; nerve: 60 + 300 = 360
+        snap = self._snap()
+        s = tw.next_sleep_seconds(snap, self.cfg)
+        # energy crossing (300s) is sooner; +buffer, capped at 300
+        self.assertLessEqual(s, tw.POLL_CAP_SECONDS)
+        self.assertGreaterEqual(s, tw.POLL_MIN_SECONDS)
+
+    def test_cap_when_both_above_mark(self):
+        snap = self._snap(e=(30, 100, 5, 900, 300, 12600),
+                          n=(12, 25, 1, 300, 60, 4200))  # both already above marks
+        s = tw.next_sleep_seconds(snap, self.cfg)
+        self.assertEqual(s, tw.POLL_CAP_SECONDS)
+
+    def test_floor_min_sleep(self):
+        # mark essentially imminent -> floored at min
+        snap = self._snap(e=(24, 100, 5, 900, 5, 100))  # reaches 25 in ~5s
+        s = tw.next_sleep_seconds(snap, self.cfg, cap=300, min_sleep=60)
+        self.assertEqual(s, 60)
+
+    def test_cap_respected_when_marks_far(self):
+        snap = self._snap(e=(0, 100, 5, 900, 900, 18000),
+                          n=(0, 25, 1, 300, 300, 7500))
+        s = tw.next_sleep_seconds(snap, self.cfg, cap=300)
+        self.assertEqual(s, 300)  # next mark is far, so cap wins
+
+
 class QuietHoursTests(unittest.TestCase):
     def setUp(self):
         self.cfg = tw.default_config()  # quiet 01:00–08:00 local, enabled

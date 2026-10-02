@@ -30,6 +30,7 @@ import math
 import os
 import sys
 import random
+import time
 import urllib.parse
 import urllib.request
 from datetime import datetime, timedelta, timezone
@@ -273,6 +274,39 @@ def seconds_to_full(current: int, maximum: int, regen: dict) -> Optional[int]:
     if maximum > 0:
         return seconds_to_value(current, maximum, regen)
     return None
+
+
+# Adaptive polling: how long to sleep before the next check. Instead of a fixed
+# interval, we wake exactly when a bar is due to reach its mark (from Torn's own
+# regen clock), per bar, whichever is sooner — with a safety-net cap so the other
+# alerts (cooldowns, travel, overflow, full, hospital/jail) still get checked.
+POLL_CAP_SECONDS = 300      # never wait longer than this (safety net)
+POLL_MIN_SECONDS = 60       # never hammer faster than this
+POLL_BUFFER_SECONDS = 8     # wake a few sec AFTER the tick, so the mark is met
+
+
+def next_sleep_seconds(snapshot: dict, config: dict,
+                       cap: int = POLL_CAP_SECONDS,
+                       min_sleep: int = POLL_MIN_SECONDS,
+                       buffer: int = POLL_BUFFER_SECONDS) -> int:
+    """Seconds to sleep before the next poll.
+
+    = the soonest upcoming mark-crossing (energy->25, nerve->10, …) computed
+    from the regen clock, capped by `cap` and floored by `min_sleep`. Bars
+    already at/above their mark don't schedule anything (nothing to wait for).
+    """
+    waits = [cap]
+    reg = snapshot.get("regen", {})
+    for bar, mark in (config.get("marks") or {}).items():
+        if mark is None:
+            continue
+        cur = snapshot.get(bar, {}).get("current", 0)
+        if cur >= mark:
+            continue  # already there — no crossing to wake for
+        secs = seconds_to_value(cur, mark, reg.get(bar, {}))
+        if secs is not None and secs > 0:
+            waits.append(secs + buffer)
+    return max(min_sleep, min(waits))
 
 
 def fmt_duration(seconds: Optional[int]) -> str:
@@ -768,6 +802,10 @@ def main(argv=None) -> int:
     parser.add_argument("--watch-market", action="store_true",
                         help="Read watchlist.json, alert on items at/under their target price. "
                              "Uses market_state.json for dedup.")
+    parser.add_argument("--loop", type=int, metavar="SECONDS", default=None,
+                        help="Run continuously for ~SECONDS, sleeping adaptively between "
+                             "polls so it wakes exactly when energy/nerve are due to hit "
+                             "their marks (from Torn's regen clock), capped for other alerts.")
     parser.add_argument("--state", default=os.environ.get("STATE_FILE", DEFAULT_STATE_FILE),
                         help="Path to the state file (default: state.json).")
     args = parser.parse_args(argv)
@@ -933,6 +971,40 @@ def main(argv=None) -> int:
         tz_offset = int(os.environ.get("TZ_OFFSET_HOURS") or 8)
     except ValueError:
         tz_offset = 8
+
+    # --- Continuous adaptive-timing mode (used by the GitHub Actions poller) ---
+    if args.loop is not None:
+        deadline = time.monotonic() + max(1, args.loop)
+        print(f"[loop] starting adaptive poller for ~{args.loop}s "
+              f"(cap={POLL_CAP_SECONDS}s, min={POLL_MIN_SECONDS}s)")
+        while True:
+            now_utc = datetime.now(timezone.utc)
+            quiet = in_quiet_hours(now_utc, config, tz_offset)
+            nf = (lambda evs: filter_quiet(evs, now_utc, config, tz_offset)) if quiet else None
+            try:
+                events, prev_state = run_once(config, fetcher, notifier, prev_state, nf)
+                save_state(args.state, prev_state)
+                sleep = next_sleep_seconds(prev_state, config)
+                en = prev_state.get("energy", {})
+                nv = prev_state.get("nerve", {})
+                print(f"[loop] {now_utc:%H:%M:%SZ} "
+                      f"E={en.get('current')}/{en.get('maximum')} "
+                      f"N={nv.get('current')}/{nv.get('maximum')} "
+                      f"quiet={'y' if quiet else 'n'} sent={len(events)} "
+                      f"next in {fmt_duration_compact(sleep)}")
+            except TornApiError as e:
+                print(f"[loop] Torn API error: {e}; backing off", file=sys.stderr)
+                sleep = POLL_CAP_SECONDS
+            except Exception as e:  # noqa: BLE001 — network blip etc.; keep looping
+                print(f"[loop] error: {e}; backing off", file=sys.stderr)
+                sleep = POLL_CAP_SECONDS
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            time.sleep(max(1, min(sleep, int(remaining))))
+        print("[loop] deadline reached; exiting for restart.")
+        return 0
+
     now_utc = datetime.now(timezone.utc)
     quiet = in_quiet_hours(now_utc, config, tz_offset)
     notify_filter = (lambda evs: filter_quiet(evs, now_utc, config, tz_offset)) if quiet else None

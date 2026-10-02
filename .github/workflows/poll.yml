@@ -21,7 +21,10 @@ on:
 
 concurrency:
   group: torn-watch
-  cancel-in-progress: false     # never kill a running loop; a new run waits, then takes over
+  # Safe to auto-replace: state is cached, so the new run inherits the previous
+  # bar values and still catches a crossing (prev<mark -> cur>=mark) across the
+  # restart. This makes pushes deploy instantly instead of waiting out the loop.
+  cancel-in-progress: true
 
 jobs:
   poll:
@@ -44,22 +47,19 @@ jobs:
           restore-keys: |
             torn-state-
 
-      - name: Poll every 15 min for ~5.25h
+      - name: Poll with adaptive timing for ~5h
         env:
           TORN_API_KEY: ${{ secrets.TORN_API_KEY }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TZ_OFFSET_HOURS: ${{ vars.TZ_OFFSET_HOURS }}
           # Test mode: set repo VARIABLE ALERT_ON_INCREASE=1 to ping on every
           # energy/nerve increase; delete it for normal "full" alerts.
           ALERT_ON_INCREASE: ${{ vars.ALERT_ON_INCREASE }}
-        run: |
-          ITER=22
-          for i in $(seq 1 $ITER); do
-            echo "::group::poll $i/$ITER ($(date -u +%FT%TZ))"
-            python3 torn_watch.py || echo "poll $i failed (continuing)"
-            echo "::endgroup::"
-            if [ "$i" -lt "$ITER" ]; then sleep 900; fi
-          done
+        # --loop runs one process that sleeps adaptively: it wakes exactly when
+        # energy/nerve are due to hit their marks (from Torn's regen clock),
+        # with a 5-min safety-net cap for the other alerts.
+        run: python3 torn_watch.py --loop 18000
 
       - name: Save state
         if: always()
