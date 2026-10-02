@@ -32,11 +32,12 @@ import sys
 import random
 import urllib.parse
 import urllib.request
+from datetime import datetime, timedelta, timezone
 from typing import Callable, Optional
 
 TORN_API_BASE = "https://api.torn.com"
 TELEGRAM_API_BASE = "https://api.telegram.org"
-DEFAULT_SELECTIONS = "bars,cooldowns,travel"
+DEFAULT_SELECTIONS = "bars,cooldowns,travel,profile,battlestats"
 DEFAULT_STATE_FILE = "state.json"
 
 # Type aliases for the injectable I/O functions
@@ -63,6 +64,11 @@ def default_config() -> dict:
             "medical_cooldown_ended": False,
             "booster_cooldown_ended": False,
             "travel_landed": True,
+            # Smarter alerts (Phase 2):
+            "energy_overflow": True,   # warn before energy caps & wastes regen
+            "hospital_out": True,      # you've left hospital
+            "jail_out": True,          # you've left jail
+            "milestone": True,         # total battle stats crossed a round number
             # Test/verify mode: ping on ANY increase of energy/nerve.
             # Noisy (roughly one ping per poll while not capped) — meant for
             # confirming the pipeline works, not permanent use. Toggled by the
@@ -82,7 +88,50 @@ def default_config() -> dict:
             "energy": 25,
             "nerve": 10,
         },
+        # How early (seconds) to warn that energy is about to cap. 600 = 10 min,
+        # i.e. two 5-energy ticks of headroom to go spend it.
+        "overflow_lead_seconds": 600,
+        # Total-battle-stat levels worth a cheer. Tuned to fire often early on
+        # and then at the big round numbers later.
+        "milestones": [
+            5_000, 10_000, 25_000, 50_000, 100_000, 250_000, 500_000,
+            1_000_000, 2_000_000, 5_000_000, 10_000_000, 25_000_000,
+            50_000_000, 100_000_000,
+        ],
+        # Overnight muting: between these LOCAL hours the noisy regen pings
+        # (energy/nerve full, marks, overflow, …) are held back so you can
+        # sleep. Rare/important ones (milestone, hospital-out, jail-out,
+        # travel-landed, cooldowns) still come through.
+        "quiet_hours": {"enabled": True, "start": 1, "end": 8},
     }
+
+
+# Alerts suppressed during quiet hours (the routine, re-firing ones).
+QUIET_SUPPRESS = {
+    "energy_full", "nerve_full", "happy_full",
+    "energy_mark", "nerve_mark",
+    "energy_increase", "nerve_increase",
+    "energy_overflow",
+}
+
+
+def in_quiet_hours(now_utc: datetime, config: dict, tz_offset: int) -> bool:
+    q = config.get("quiet_hours", {})
+    if not q.get("enabled"):
+        return False
+    hour = (now_utc + timedelta(hours=tz_offset)).hour
+    start, end = q.get("start", 1), q.get("end", 8)
+    if start <= end:
+        return start <= hour < end
+    return hour >= start or hour < end   # window wraps past midnight
+
+
+def filter_quiet(events: list[dict], now_utc: datetime, config: dict,
+                 tz_offset: int) -> list[dict]:
+    """Drop the noisy alert types during quiet hours; keep the important ones."""
+    if not in_quiet_hours(now_utc, config, tz_offset):
+        return events
+    return [e for e in events if e["type"] not in QUIET_SUPPRESS]
 
 
 def apply_env_overrides(config: dict) -> dict:
@@ -98,6 +147,16 @@ def apply_env_overrides(config: dict) -> dict:
         config["alerts"]["nerve_increase"] = True
         config["alerts"]["energy_full"] = False
         config["alerts"]["nerve_full"] = False
+    # Quiet-hours overrides (all optional)
+    qe = os.environ.get("QUIET_ENABLED", "").strip().lower()
+    if qe in ("0", "false", "no", "off"):
+        config["quiet_hours"]["enabled"] = False
+    elif qe in ("1", "true", "yes", "on"):
+        config["quiet_hours"]["enabled"] = True
+    for key, env in (("start", "QUIET_START"), ("end", "QUIET_END")):
+        v = os.environ.get(env, "").strip()
+        if v.isdigit():
+            config["quiet_hours"][key] = int(v)
     return config
 
 
@@ -137,6 +196,7 @@ def parse_snapshot(data: dict) -> dict:
 
     cooldowns = data.get("cooldowns") or {}
     travel = data.get("travel") or {}
+    status = data.get("status") or {}   # from the 'profile' selection
 
     return {
         "energy": bar("energy"),
@@ -149,6 +209,14 @@ def parse_snapshot(data: dict) -> dict:
             "happy": regen("happy"),
             "life": regen("life"),
         },
+        # player state ("Okay"/"Hospital"/"Jail"/"Federal"/"Traveling"/…) and
+        # the unix time it lasts until; used for hospital/jail-out alerts.
+        "status": {
+            "state": str(status.get("state") or ""),
+            "until": _to_int(status.get("until")),
+        },
+        # total battle stats (from the 'battlestats' selection) for milestones
+        "battle_total": _to_int(data.get("total")),
         "cooldowns": {
             "drug": _to_int(cooldowns.get("drug")),
             "medical": _to_int(cooldowns.get("medical")),
@@ -338,7 +406,64 @@ def evaluate(prev: Optional[dict], cur: dict, config: dict) -> tuple[list[dict],
                 "destination": cur.get("travel", {}).get("destination", ""),
             })
 
+    # --- Energy about to overflow (enters the final `lead` window) ---
+    if alerts.get("energy_overflow"):
+        lead = config.get("overflow_lead_seconds", 600)
+        eb = cur.get("energy", {})
+        cc, mx = eb.get("current", 0), eb.get("maximum", 0)
+        if mx > 0 and cc < mx:
+            cur_eta = seconds_to_full(cc, mx, cur.get("regen", {}).get("energy", {}))
+            pe = prev.get("energy", {})
+            prev_eta = seconds_to_full(
+                pe.get("current", 0), pe.get("maximum", 0),
+                prev.get("regen", {}).get("energy", {}))
+            # fire once as it crosses INTO the window; re-arms after you spend
+            entering = cur_eta is not None and cur_eta <= lead and \
+                (prev_eta is None or prev_eta > lead)
+            if entering:
+                events.append({
+                    "type": "energy_overflow", "bar": "energy",
+                    "current": cc, "maximum": mx, "eta_full": cur_eta,
+                })
+
+    # --- Out of hospital / jail (state transition back to Okay) ---
+    prev_cat = _state_category(prev.get("status", {}).get("state", ""))
+    cur_cat = _state_category(cur.get("status", {}).get("state", ""))
+    if alerts.get("hospital_out") and prev_cat == "hospital" and cur_cat not in ("hospital", ""):
+        events.append({"type": "hospital_out"})
+    if alerts.get("jail_out") and prev_cat == "jail" and cur_cat not in ("jail", ""):
+        events.append({"type": "jail_out"})
+
+    # --- Battle-stat milestone crossed ---
+    if alerts.get("milestone"):
+        pt = prev.get("battle_total", 0)
+        ct = cur.get("battle_total", 0)
+        # pt must be a real prior reading (>0), else a fresh deploy would fire
+        # a burst for every milestone below your current total.
+        if pt > 0 and ct > pt:
+            crossed = [t for t in config.get("milestones", []) if pt < t <= ct]
+            if crossed:
+                events.append({
+                    "type": "milestone", "value": max(crossed), "total": ct,
+                })
+
     return events, cur
+
+
+def _state_category(state: str) -> str:
+    """Bucket Torn's status.state string into hospital / jail / okay / ''.
+
+    Defensive substring match so minor wording differences ('In Hospital' vs
+    'Hospital', 'Federal') don't break it, and an empty/unknown state yields
+    '' (which never triggers a transition alert)."""
+    s = (state or "").lower()
+    if "hospital" in s:
+        return "hospital"
+    if "jail" in s or "federal" in s:
+        return "jail"
+    if s:
+        return "okay"
+    return ""
 
 
 # --------------------------------------------------------------------------
@@ -357,10 +482,14 @@ _EMOJI = {
     "energy_full": "⚡", "energy_mark": "⚡", "energy_increase": "⚡",
     "nerve_full": "🔴", "nerve_mark": "🔴", "nerve_increase": "🔴",
     "happy_full": "🙂",
+    "energy_overflow": "⏳",
     "drug_cooldown_ended": "💊",
     "medical_cooldown_ended": "🩹",
     "booster_cooldown_ended": "🧪",
     "travel_landed": "✈️",
+    "hospital_out": "🏥",
+    "jail_out": "🔓",
+    "milestone": "🏆",
 }
 
 _FLAVOR = {
@@ -401,6 +530,26 @@ _FLAVOR = {
         "Nerve creeping up",
         "Nerve on the rise",
     ],
+    "energy_overflow": [
+        "Energy's about to cap — spend it before it spills",
+        "Energy nearly full. Burn some before regen goes to waste",
+        "Energy's topping off soon — don't leave gains on the table",
+    ],
+    "hospital_out": [
+        "You're out of hospital. Back on your feet",
+        "Discharged — out of hospital and good to go",
+        "Hospital's done with you. Get back to it",
+    ],
+    "jail_out": [
+        "You're out of jail. Lay low for a bit",
+        "Sprung from jail — you're a free agent again",
+        "Jail's behind you. Try not to make it a habit",
+    ],
+    "milestone": [
+        "Milestone — you cracked {value} total stats! Now at {total}",
+        "{value} total stats and climbing. Sitting at {total} now",
+        "Big one: {value} total cleared. You're at {total}",
+    ],
     "drug_cooldown_ended": [
         "Drug cooldown's up — you're clear to dose again",
         "Drug cooldown cleared. The pharmacy's open, so to speak",
@@ -431,7 +580,11 @@ def format_event(ev: dict) -> str:
         return f"• {html_escape(t)}"
 
     dest = html_escape(ev.get("destination") or "your destination")
-    flavor = random.choice(pool).format(dest=dest)
+    flavor = random.choice(pool).format(
+        dest=dest,
+        value=f"{ev.get('value', 0):,}",
+        total=f"{ev.get('total', 0):,}",
+    )
     head = f"{emoji} <b>{flavor}</b>"
 
     # Bar events (energy/nerve/happy and variants) get a stat tail + mini-gauge.
@@ -447,6 +600,8 @@ def format_event(ev: dict) -> str:
         eta = ev.get("eta_full")
         if t.endswith("_mark") and eta:
             tail += f" · full in <b>{fmt_duration(eta)}</b>"
+        elif t == "energy_overflow" and eta:
+            tail += f" · caps in <b>{fmt_duration(eta)}</b>"
         return f"{head} · {tail}"
 
     return head
@@ -539,13 +694,20 @@ def save_state(path: str, state: dict) -> None:
 # Orchestration — one poll cycle
 # --------------------------------------------------------------------------
 def run_once(config: dict, fetcher: HttpGet, notifier: Notifier,
-             prev_state: Optional[dict]) -> tuple[list[dict], dict]:
-    """Fetch, evaluate, notify. Returns (events_sent, new_state)."""
+             prev_state: Optional[dict],
+             notify_filter: Optional[Callable[[list], list]] = None) -> tuple[list[dict], dict]:
+    """Fetch, evaluate, notify. Returns (all_events, new_state).
+
+    `notify_filter` (optional) decides which events actually get sent — used
+    for quiet hours. The full event list is still returned, and state is still
+    advanced, so a suppressed alert is simply not delivered (never re-queued).
+    """
     raw = fetcher("")
     snapshot = parse_snapshot(raw)
     events, new_state = evaluate(prev_state, snapshot, config)
-    if events:
-        notifier(format_message(events))
+    to_send = notify_filter(events) if notify_filter else events
+    if to_send:
+        notifier(format_message(to_send))
     return events, new_state
 
 
@@ -750,7 +912,15 @@ def main(argv=None) -> int:
     notifier = make_telegram_notifier(bot_token, chat_id)
 
     try:
-        events, new_state = run_once(config, fetcher, notifier, prev_state)
+        tz_offset = int(os.environ.get("TZ_OFFSET_HOURS") or 8)
+    except ValueError:
+        tz_offset = 8
+    now_utc = datetime.now(timezone.utc)
+    quiet = in_quiet_hours(now_utc, config, tz_offset)
+    notify_filter = (lambda evs: filter_quiet(evs, now_utc, config, tz_offset)) if quiet else None
+
+    try:
+        events, new_state = run_once(config, fetcher, notifier, prev_state, notify_filter)
     except TornApiError as e:
         print(f"Torn API error: {e}", file=sys.stderr)
         return 3
@@ -765,7 +935,7 @@ def main(argv=None) -> int:
     print(f"[diag] prev_state={'loaded' if prev_state else 'NONE(first-run/baseline)'} "
           f"| energy={en.get('current')}/{en.get('maximum')} (full in {fmt_duration(e_full)}) "
           f"nerve={nv.get('current')}/{nv.get('maximum')} (full in {fmt_duration(n_full)}) "
-          f"| increase_mode={inc} | alerts_sent={len(events)}")
+          f"| increase_mode={inc} | quiet={'yes' if quiet else 'no'} | alerts_found={len(events)}")
     print(f"Polled OK. {len(events)} alert(s) sent.")
     return 0
 

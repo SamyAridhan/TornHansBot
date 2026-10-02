@@ -312,6 +312,143 @@ class TimingTests(unittest.TestCase):
         self.assertNotIn("& ", msg)
 
 
+class SmarterAlertTests(unittest.TestCase):
+    """Phase 2: overflow nudge, hospital/jail-out, milestones."""
+
+    def setUp(self):
+        self.cfg = tw.default_config()
+
+    def _snap(self, e_cur, e_full, state="", total=0):
+        return tw.parse_snapshot({
+            "energy": {"current": e_cur, "maximum": 100,
+                       "increment": 5, "interval": 900, "ticktime": 60,
+                       "fulltime": e_full},
+            "status": {"state": state},
+            "total": total,
+        })
+
+    def test_state_category(self):
+        self.assertEqual(tw._state_category("In Hospital"), "hospital")
+        self.assertEqual(tw._state_category("Hospital"), "hospital")
+        self.assertEqual(tw._state_category("In Jail"), "jail")
+        self.assertEqual(tw._state_category("Federal"), "jail")
+        self.assertEqual(tw._state_category("Okay"), "okay")
+        self.assertEqual(tw._state_category(""), "")
+
+    def test_overflow_fires_entering_window(self):
+        prev = self._snap(60, 7200)   # far from full
+        cur = self._snap(95, 60)      # ~1 min to cap
+        events, _ = tw.evaluate(prev, cur, self.cfg)
+        self.assertIn("energy_overflow", [e["type"] for e in events])
+
+    def test_overflow_no_refire_when_already_in_window(self):
+        prev = self._snap(95, 120)
+        cur = self._snap(96, 60)
+        events, _ = tw.evaluate(prev, cur, self.cfg)
+        self.assertNotIn("energy_overflow", [e["type"] for e in events])
+
+    def test_overflow_silent_when_full(self):
+        prev = self._snap(95, 60)
+        cur = tw.parse_snapshot({"energy": {"current": 100, "maximum": 100}})
+        events, _ = tw.evaluate(prev, cur, self.cfg)
+        self.assertNotIn("energy_overflow", [e["type"] for e in events])
+
+    def test_hospital_out_fires(self):
+        prev = self._snap(50, 7200, state="Hospital")
+        cur = self._snap(50, 7200, state="Okay")
+        events, _ = tw.evaluate(prev, cur, self.cfg)
+        self.assertIn("hospital_out", [e["type"] for e in events])
+
+    def test_hospital_no_fire_when_unknown_state(self):
+        prev = self._snap(50, 7200, state="Hospital")
+        cur = self._snap(50, 7200, state="")   # field missing this poll
+        events, _ = tw.evaluate(prev, cur, self.cfg)
+        self.assertNotIn("hospital_out", [e["type"] for e in events])
+
+    def test_jail_out_fires(self):
+        prev = self._snap(50, 7200, state="In Jail")
+        cur = self._snap(50, 7200, state="Okay")
+        events, _ = tw.evaluate(prev, cur, self.cfg)
+        self.assertIn("jail_out", [e["type"] for e in events])
+
+    def test_milestone_fires_on_cross(self):
+        prev = self._snap(50, 7200, total=9_000)
+        cur = self._snap(50, 7200, total=11_000)
+        events, _ = tw.evaluate(prev, cur, self.cfg)
+        ms = [e for e in events if e["type"] == "milestone"]
+        self.assertTrue(ms)
+        self.assertEqual(ms[0]["value"], 10_000)
+
+    def test_milestone_no_burst_on_fresh_deploy(self):
+        # prev total 0 (old state had no battlestats) must not fire a burst
+        prev = self._snap(50, 7200, total=0)
+        cur = self._snap(50, 7200, total=123_456)
+        events, _ = tw.evaluate(prev, cur, self.cfg)
+        self.assertNotIn("milestone", [e["type"] for e in events])
+
+    def test_milestone_one_event_for_multi_cross(self):
+        prev = self._snap(50, 7200, total=4_000)
+        cur = self._snap(50, 7200, total=60_000)  # crosses 5k,10k,25k,50k
+        events, _ = tw.evaluate(prev, cur, self.cfg)
+        ms = [e for e in events if e["type"] == "milestone"]
+        self.assertEqual(len(ms), 1)
+        self.assertEqual(ms[0]["value"], 50_000)
+
+    def test_overflow_and_milestone_messages_render(self):
+        for ev in (
+            {"type": "energy_overflow", "bar": "energy", "current": 95,
+             "maximum": 100, "eta_full": 60},
+            {"type": "hospital_out"},
+            {"type": "jail_out"},
+            {"type": "milestone", "value": 50_000, "total": 60_000},
+        ):
+            msg = tw.format_event(ev)
+            self.assertTrue(len(msg) > 0)
+        self.assertIn("caps in", tw.format_event(
+            {"type": "energy_overflow", "bar": "energy", "current": 95,
+             "maximum": 100, "eta_full": 60}))
+        self.assertIn("50,000", tw.format_event(
+            {"type": "milestone", "value": 50_000, "total": 60_000}))
+
+
+class QuietHoursTests(unittest.TestCase):
+    def setUp(self):
+        self.cfg = tw.default_config()  # quiet 01:00–08:00 local, enabled
+
+    def _utc_for_local_hour(self, local_hour, tz=8):
+        # pick a UTC time whose local hour (UTC+tz) is local_hour
+        from datetime import datetime, timezone
+        utc_hour = (local_hour - tz) % 24
+        return datetime(2026, 10, 2, utc_hour, 0, tzinfo=timezone.utc)
+
+    def test_in_quiet_window(self):
+        self.assertTrue(tw.in_quiet_hours(self._utc_for_local_hour(3), self.cfg, 8))
+
+    def test_outside_quiet_window(self):
+        self.assertFalse(tw.in_quiet_hours(self._utc_for_local_hour(15), self.cfg, 8))
+
+    def test_disabled(self):
+        self.cfg["quiet_hours"]["enabled"] = False
+        self.assertFalse(tw.in_quiet_hours(self._utc_for_local_hour(3), self.cfg, 8))
+
+    def test_filter_suppresses_noisy_keeps_important(self):
+        events = [
+            {"type": "energy_full", "current": 100, "maximum": 100},
+            {"type": "milestone", "value": 50_000, "total": 60_000},
+            {"type": "hospital_out"},
+        ]
+        kept = tw.filter_quiet(events, self._utc_for_local_hour(3), self.cfg, 8)
+        kinds = [e["type"] for e in kept]
+        self.assertNotIn("energy_full", kinds)
+        self.assertIn("milestone", kinds)
+        self.assertIn("hospital_out", kinds)
+
+    def test_filter_passthrough_outside_quiet(self):
+        events = [{"type": "energy_full", "current": 100, "maximum": 100}]
+        kept = tw.filter_quiet(events, self._utc_for_local_hour(15), self.cfg, 8)
+        self.assertEqual(len(kept), 1)
+
+
 class TornApiErrorTests(unittest.TestCase):
     def test_fetcher_raises_on_api_error(self):
         # Simulate what make_torn_fetcher does with an error payload,
