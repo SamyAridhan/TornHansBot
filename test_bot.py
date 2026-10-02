@@ -120,6 +120,15 @@ class OffsetTests(unittest.TestCase):
         self.assertEqual(bot.load_offset(p), 42)
 
 
+class PinStateTests(unittest.TestCase):
+    def test_roundtrip(self):
+        import tempfile, os
+        p = os.path.join(tempfile.mkdtemp(), "pin.json")
+        self.assertEqual(bot._load_pin(p), {})
+        bot._save_pin({"message_id": 7, "last_text": "hi"}, p)
+        self.assertEqual(bot._load_pin(p)["message_id"], 7)
+
+
 class HandleTests(unittest.TestCase):
     def test_help_needs_no_network(self):
         msg = bot.handle("help", "", api_key="", now_utc=datetime.now(timezone.utc))

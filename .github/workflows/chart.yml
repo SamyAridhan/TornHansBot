@@ -1,0 +1,32 @@
+name: torn-chart
+
+# Weekly stat-growth chart: renders history.csv to a PNG and sends it to
+# Telegram. Runs Sunday ~09:08 local (01:08 UTC). Needs matplotlib.
+
+on:
+  schedule:
+    - cron: "8 1 * * 0"
+  workflow_dispatch: {}
+
+concurrency:
+  group: torn-chart
+  cancel-in-progress: false
+
+jobs:
+  chart:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install matplotlib
+        run: pip install --quiet matplotlib
+
+      - name: Render & send weekly chart
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python3 chart.py

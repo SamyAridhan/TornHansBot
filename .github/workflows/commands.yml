@@ -33,10 +33,12 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Restore command offset
+      - name: Restore command + pin state
         uses: actions/cache/restore@v4
         with:
-          path: commands_state.json
+          path: |
+            commands_state.json
+            pin_state.json
           key: torn-cmd-${{ github.run_id }}
           restore-keys: |
             torn-cmd-
@@ -50,9 +52,11 @@ jobs:
           BOT_RUN_SECONDS: "18000"
         run: python3 bot.py
 
-      - name: Save command offset
+      - name: Save command + pin state
         if: always()
         uses: actions/cache/save@v4
         with:
-          path: commands_state.json
+          path: |
+            commands_state.json
+            pin_state.json
           key: torn-cmd-${{ github.run_id }}

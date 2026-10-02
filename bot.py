@@ -28,6 +28,7 @@ import json
 import os
 import sys
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 from datetime import datetime, timedelta, timezone
@@ -205,8 +206,17 @@ def _tg_call(bot_token: str, method: str, payload: dict) -> dict:
         url, data=data,
         headers={"Content-Type": "application/json", "User-Agent": "torn-watch-bot/1.0"},
     )
-    with urllib.request.urlopen(req, timeout=60) as resp:
-        return json.loads(resp.read().decode("utf-8"))
+    try:
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            return json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        # Telegram returns 400 with a description for things like
+        # "message is not modified" / "message to edit not found" — hand the
+        # parsed error back instead of raising so callers can react.
+        try:
+            return json.loads(e.read().decode("utf-8"))
+        except Exception:
+            return {"ok": False, "description": str(e)}
 
 
 def set_my_commands(bot_token: str) -> None:
@@ -240,6 +250,73 @@ def get_updates(bot_token: str, offset: Optional[int], timeout: int = 30) -> lis
     with urllib.request.urlopen(req, timeout=timeout + 15) as resp:
         data = json.loads(resp.read().decode("utf-8"))
     return data.get("result", []) if data.get("ok") else []
+
+
+# --------------------------------------------------------------------------
+# Pinned live dashboard — one message the bot edits in place, so there's a
+# always-current status at the top of the chat instead of a stream of pings.
+# --------------------------------------------------------------------------
+PIN_STATE_FILE = "pin_state.json"
+
+
+def _load_pin(path: str = PIN_STATE_FILE) -> dict:
+    if not os.path.exists(path):
+        return {}
+    try:
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+def _save_pin(d: dict, path: str = PIN_STATE_FILE) -> None:
+    try:
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(d, f)
+    except OSError:
+        pass
+
+
+def _send_and_pin(bot_token: str, chat_id: str, text: str) -> Optional[int]:
+    r = _tg_call(bot_token, "sendMessage", {
+        "chat_id": chat_id, "text": text,
+        "parse_mode": "HTML", "disable_web_page_preview": True,
+    })
+    mid = (r.get("result") or {}).get("message_id")
+    if mid:
+        _tg_call(bot_token, "pinChatMessage", {
+            "chat_id": chat_id, "message_id": mid, "disable_notification": True,
+        })
+    return mid
+
+
+def refresh_pin(api_key: str, bot_token: str, chat_id: str, tz_offset: int) -> None:
+    """Create (and pin) or edit the live dashboard message. Best-effort."""
+    raw = tw.make_torn_fetcher(api_key, "bars,cooldowns,travel,profile")("")
+    snap = tw.parse_snapshot(raw)
+    text = "📌 " + format_status(snap, datetime.now(timezone.utc), tz_offset)
+
+    st = _load_pin()
+    mid = st.get("message_id")
+    if st.get("last_text") == text and mid:
+        return  # unchanged since last edit — skip (also avoids "not modified")
+
+    if mid:
+        r = _tg_call(bot_token, "editMessageText", {
+            "chat_id": chat_id, "message_id": mid, "text": text,
+            "parse_mode": "HTML", "disable_web_page_preview": True,
+        })
+        if not r.get("ok"):
+            desc = (r.get("description") or "").lower()
+            if "not modified" in desc:
+                _save_pin({"message_id": mid, "last_text": text})
+                return
+            mid = _send_and_pin(bot_token, chat_id, text)  # gone — recreate
+    else:
+        mid = _send_and_pin(bot_token, chat_id, text)
+
+    if mid:
+        _save_pin({"message_id": mid, "last_text": text})
 
 
 # --------------------------------------------------------------------------
@@ -364,9 +441,24 @@ def main(argv=None) -> int:
 
     offset = load_offset()
     deadline = time.time() + max(1, args.seconds)
-    print(f"[bot] listening (offset={offset}, until +{args.seconds}s, once={args.once})")
+    pin_on = os.environ.get("PIN_STATUS", "1").strip().lower() not in ("0", "false", "no", "off")
+    try:
+        pin_every = int(os.environ.get("PIN_REFRESH_SECONDS") or 600)
+    except ValueError:
+        pin_every = 600
+    last_pin = 0.0
+    print(f"[bot] listening (offset={offset}, until +{args.seconds}s, "
+          f"once={args.once}, pin={'on' if pin_on else 'off'})")
 
     while True:
+        # Keep the pinned dashboard fresh (best-effort, never blocks commands).
+        if pin_on and time.time() - last_pin >= pin_every:
+            try:
+                refresh_pin(api_key, bot_token, chat_id, tz_offset)
+            except Exception as e:  # noqa: BLE001
+                print(f"[bot] pin refresh error (non-fatal): {e}", file=sys.stderr)
+            last_pin = time.time()
+
         try:
             updates = get_updates(bot_token, offset, timeout=0 if args.once else 30)
         except Exception as e:  # network blip — pause and retry
