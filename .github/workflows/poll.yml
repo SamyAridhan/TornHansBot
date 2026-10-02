@@ -13,6 +13,7 @@ name: torn-watch
 # Switched to adaptive --loop timing (2026-10-02).
 # Restart for two-line alert formatting (2026-10-02).
 # Restart for three-line alert formatting (2026-10-02).
+# Restart for clause-split flavor lines (2026-10-02).
 
 on:
   schedule:

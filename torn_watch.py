@@ -620,6 +620,18 @@ _FLAVOR = {
 }
 
 
+def _split_flavor(text: str) -> list[str]:
+    """Split a flavor line into clauses at em-dashes and sentence periods,
+    so each clause can go on its own line. Keeps the period on its clause."""
+    segs: list[str] = []
+    for chunk in text.split("—"):
+        for s in chunk.replace(". ", ".\n").split("\n"):
+            s = s.strip()
+            if s:
+                segs.append(s)
+    return segs or [text.strip()]
+
+
 def format_event(ev: dict) -> str:
     """Render one event as a single HTML line for Telegram."""
     t = ev["type"]
@@ -634,7 +646,13 @@ def format_event(ev: dict) -> str:
         value=f"{ev.get('value', 0):,}",
         total=f"{ev.get('total', 0):,}",
     )
-    head = f"{emoji} <b>{flavor}</b>"
+    # Break the flavor at em-dashes and sentence periods so each clause sits on
+    # its own line (no mid-phrase wrapping). Emoji leads the first line.
+    segs = _split_flavor(flavor)
+    head = "\n".join(
+        (f"{emoji} <b>{s}</b>" if i == 0 else f"<b>{s}</b>")
+        for i, s in enumerate(segs)
+    )
 
     # Bar events (energy/nerve/happy and variants): each piece on its own short
     # line so nothing wraps — the flavor, then the value + gauge, then timing.
