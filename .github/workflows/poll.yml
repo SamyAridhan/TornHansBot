@@ -15,6 +15,7 @@ name: torn-watch
 # Restart for three-line alert formatting (2026-10-02).
 # Restart for clause-split flavor lines (2026-10-02).
 # Restart for hospital/jail entry alerts (2026-10-03).
+# Nerve: replace 10-mark with "about to cap" nudge (2026-10-03).
 
 on:
   schedule:

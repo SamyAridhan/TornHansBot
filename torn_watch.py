@@ -67,6 +67,7 @@ def default_config() -> dict:
             "travel_landed": True,
             # Smarter alerts (Phase 2):
             "energy_overflow": True,   # warn before energy caps & wastes regen
+            "nerve_overflow": True,    # warn before nerve caps & wastes regen
             "hospital_in": True,       # you've been hospitalized (with countdown)
             "hospital_out": True,      # you've left hospital
             "jail_in": True,           # you've been jailed (with countdown)
@@ -89,7 +90,10 @@ def default_config() -> dict:
         # back below). Independent of the *_full alerts. Set to None to disable.
         "marks": {
             "energy": 25,
-            "nerve": 10,
+            # Nerve mark disabled: a "crosses 10 from below" ping rarely fits
+            # how nerve is actually used (spent in a trickle, or sitting full).
+            # Nerve is handled by the "about to cap" nudge (nerve_overflow).
+            "nerve": None,
         },
         # How early (seconds) to warn that energy is about to cap. 600 = 10 min,
         # i.e. two 5-energy ticks of headroom to go spend it.
@@ -457,25 +461,28 @@ def evaluate(prev: Optional[dict], cur: dict, config: dict) -> tuple[list[dict],
                 "destination": cur.get("travel", {}).get("destination", ""),
             })
 
-    # --- Energy about to overflow (enters the final `lead` window) ---
-    if alerts.get("energy_overflow"):
-        lead = config.get("overflow_lead_seconds", 600)
-        eb = cur.get("energy", {})
-        cc, mx = eb.get("current", 0), eb.get("maximum", 0)
-        if mx > 0 and cc < mx:
-            cur_eta = seconds_to_full(cc, mx, cur.get("regen", {}).get("energy", {}))
-            pe = prev.get("energy", {})
-            prev_eta = seconds_to_full(
-                pe.get("current", 0), pe.get("maximum", 0),
-                prev.get("regen", {}).get("energy", {}))
-            # fire once as it crosses INTO the window; re-arms after you spend
-            entering = cur_eta is not None and cur_eta <= lead and \
-                (prev_eta is None or prev_eta > lead)
-            if entering:
-                events.append({
-                    "type": "energy_overflow", "bar": "energy",
-                    "current": cc, "maximum": mx, "eta_full": cur_eta,
-                })
+    # --- Bar about to overflow (enters the final `lead` window before cap) ---
+    lead = config.get("overflow_lead_seconds", 600)
+    for bar in ("energy", "nerve"):
+        if not alerts.get(f"{bar}_overflow"):
+            continue
+        b = cur.get(bar, {})
+        cc, mx = b.get("current", 0), b.get("maximum", 0)
+        if mx <= 0 or cc >= mx:
+            continue
+        cur_eta = seconds_to_full(cc, mx, cur.get("regen", {}).get(bar, {}))
+        pb = prev.get(bar, {})
+        prev_eta = seconds_to_full(
+            pb.get("current", 0), pb.get("maximum", 0),
+            prev.get("regen", {}).get(bar, {}))
+        # fire once as it crosses INTO the window; re-arms after you spend
+        entering = cur_eta is not None and cur_eta <= lead and \
+            (prev_eta is None or prev_eta > lead)
+        if entering:
+            events.append({
+                "type": f"{bar}_overflow", "bar": bar,
+                "current": cc, "maximum": mx, "eta_full": cur_eta,
+            })
 
     # --- Hospital / jail state transitions ---
     prev_cat = _state_category(prev.get("status", {}).get("state", ""))
@@ -541,6 +548,7 @@ _EMOJI = {
     "nerve_full": "🔴", "nerve_mark": "🔴", "nerve_increase": "🔴",
     "happy_full": "🙂",
     "energy_overflow": "⏳",
+    "nerve_overflow": "⏳",
     "drug_cooldown_ended": "💊",
     "medical_cooldown_ended": "🩹",
     "booster_cooldown_ended": "🧪",
@@ -594,6 +602,11 @@ _FLAVOR = {
         "Energy's about to cap — spend it before it spills",
         "Energy nearly full. Burn some before regen goes to waste",
         "Energy's topping off soon — don't leave gains on the table",
+    ],
+    "nerve_overflow": [
+        "Nerve's about to cap — go spend it on a crime",
+        "Nerve nearly full. Dump it before the regen wastes",
+        "Nerve's topping off soon — put it to work",
     ],
     "hospital_in": [
         "You've been hospitalized",
@@ -688,7 +701,7 @@ def format_event(ev: dict) -> str:
         eta = ev.get("eta_full")
         if t.endswith("_mark") and eta:
             lines.append(f"🔜 full in <b>{fmt_duration_compact(eta)}</b>")
-        elif t == "energy_overflow" and eta:
+        elif t.endswith("_overflow") and eta:
             lines.append(f"⏳ caps in <b>{fmt_duration_compact(eta)}</b>")
         return "\n".join(lines)
 

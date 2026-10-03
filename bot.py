@@ -379,10 +379,10 @@ def _preview_message() -> str:
     samples = [
         {"type": "energy_mark", "bar": "energy", "current": 25, "maximum": 100,
          "mark": 25, "eta_full": 13440},
-        {"type": "nerve_mark", "bar": "nerve", "current": 10, "maximum": 25,
-         "mark": 10, "eta_full": 4200},
         {"type": "energy_overflow", "bar": "energy", "current": 95, "maximum": 100,
          "eta_full": 120},
+        {"type": "nerve_overflow", "bar": "nerve", "current": 23, "maximum": 25,
+         "eta_full": 480},
         {"type": "energy_full", "bar": "energy", "current": 100, "maximum": 100},
         {"type": "hospital_in",
          "until": int(datetime.now(timezone.utc).timestamp()) + 720},

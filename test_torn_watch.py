@@ -347,6 +347,24 @@ class SmarterAlertTests(unittest.TestCase):
         events, _ = tw.evaluate(prev, cur, self.cfg)
         self.assertNotIn("energy_overflow", [e["type"] for e in events])
 
+    def test_nerve_overflow_fires_entering_window(self):
+        # nerve 23/25 regen 1/300s, ~2 ticks (480s) to cap -> within 600 lead
+        prev = tw.parse_snapshot({"nerve": {"current": 20, "maximum": 25,
+                                            "increment": 1, "interval": 300,
+                                            "ticktime": 200, "fulltime": 1400}})
+        cur = tw.parse_snapshot({"nerve": {"current": 23, "maximum": 25,
+                                           "increment": 1, "interval": 300,
+                                           "ticktime": 60, "fulltime": 480}})
+        events, _ = tw.evaluate(prev, cur, self.cfg)
+        self.assertIn("nerve_overflow", [e["type"] for e in events])
+
+    def test_nerve_mark_disabled_by_default(self):
+        # climbing 8 -> 11 no longer fires a nerve mark (replaced by overflow)
+        prev = tw.parse_snapshot({"nerve": {"current": 8, "maximum": 25}})
+        cur = tw.parse_snapshot({"nerve": {"current": 11, "maximum": 25}})
+        events, _ = tw.evaluate(prev, cur, self.cfg)
+        self.assertNotIn("nerve_mark", [e["type"] for e in events])
+
     def test_overflow_silent_when_full(self):
         prev = self._snap(95, 60)
         cur = tw.parse_snapshot({"energy": {"current": 100, "maximum": 100}})
