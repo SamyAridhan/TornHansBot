@@ -11,7 +11,7 @@ name: torn-commands
 
 on:
   schedule:
-    - cron: "19 */2 * * *"     # offset from the poller's :08 so they don't collide
+    - cron: "19 * * * *"       # hourly (GitHub throttles public-repo schedules)
   workflow_dispatch: {}
   push:
     paths:
@@ -22,16 +22,15 @@ on:
 
 concurrency:
   group: torn-commands
-  # Commands are on-demand, so a few-seconds restart gap is harmless. Letting a
-  # new run replace the current one means a push deploys instantly — no manual
-  # cancel needed. (The poller keeps cancel-in-progress:false to never drop an
-  # alert edge.)
-  cancel-in-progress: true
+  # OVERLAP for uptime: a new run waits and takes over when the current ends, so
+  # a late/skipped cron can't leave the bot unresponsive. Deploy new code with a
+  # manual run (workflow_dispatch) rather than auto-replace.
+  cancel-in-progress: false
 
 jobs:
   listen:
     runs-on: ubuntu-latest
-    timeout-minutes: 340
+    timeout-minutes: 355
     steps:
       - uses: actions/checkout@v4
 
@@ -55,7 +54,7 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           TZ_OFFSET_HOURS: ${{ vars.TZ_OFFSET_HOURS }}
-          BOT_RUN_SECONDS: "18000"
+          BOT_RUN_SECONDS: "20400"
         run: python3 bot.py
 
       - name: Save command + pin state

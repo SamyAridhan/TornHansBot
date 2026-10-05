@@ -19,7 +19,10 @@ name: torn-watch
 
 on:
   schedule:
-    - cron: "8 */2 * * *"     # try to (re)start every 2h; overlap tolerates skips
+    # GitHub heavily throttles scheduled runs on public repos (ours were firing
+    # every ~5-7h, not every 2h), so ask HOURLY — more attempts means at least
+    # one lands within each ~5.5h loop window even when most are skipped.
+    - cron: "8 * * * *"
   workflow_dispatch: {}         # manual start
   push:
     paths:
@@ -27,15 +30,16 @@ on:
 
 concurrency:
   group: torn-watch
-  # Safe to auto-replace: state is cached, so the new run inherits the previous
-  # bar values and still catches a crossing (prev<mark -> cur>=mark) across the
-  # restart. This makes pushes deploy instantly instead of waiting out the loop.
-  cancel-in-progress: true
+  # OVERLAP for uptime: a new run WAITS for the current one and takes over the
+  # moment it ends (never a gap). cancel-in-progress:true removed this safety
+  # net and a late cron left the bot dead for hours — so keep it false. Deploy
+  # new code with a manual run (workflow_dispatch) instead of relying on this.
+  cancel-in-progress: false
 
 jobs:
   poll:
     runs-on: ubuntu-latest
-    timeout-minutes: 340        # under GitHub's 6h hard cap
+    timeout-minutes: 355        # under GitHub's 6h hard cap
     steps:
       - name: Check out repo
         uses: actions/checkout@v4
@@ -65,7 +69,7 @@ jobs:
         # --loop runs one process that sleeps adaptively: it wakes exactly when
         # energy/nerve are due to hit their marks (from Torn's regen clock),
         # with a 5-min safety-net cap for the other alerts.
-        run: python3 torn_watch.py --loop 18000
+        run: python3 torn_watch.py --loop 20400
 
       - name: Save state
         if: always()
