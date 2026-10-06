@@ -2,3 +2,7 @@
 state.json
 __pycache__/
 *.pyc
+
+# Local deep-research artifacts (not part of the bot)
+research_notes/
+reports/
