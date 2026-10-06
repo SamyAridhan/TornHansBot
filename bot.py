@@ -137,7 +137,13 @@ def _bar_row(emoji: str, label: str, b: dict, reg: dict) -> str:
     if mx and cur >= mx:
         tail = "full"
     else:
-        tail = tw.fmt_duration_compact(tw.seconds_to_full(cur, mx, reg))
+        secs = tw.seconds_to_full(cur, mx, reg)
+        prefix = ""
+        if secs is None and label.strip() == "Life":
+            # Life has no API regen clock; estimate from the 5%/5min formula.
+            secs = tw.seconds_to_full_life(cur, mx)
+            prefix = "~"
+        tail = (prefix + tw.fmt_duration_compact(secs)) if secs is not None else "?"
     # label padded to 6, value right-padded to 7 -> columns line up in <pre>
     return f"{emoji} {label:<6}{value:>8}  {tail}"
 
@@ -182,16 +188,22 @@ def format_status(snapshot: dict, now_utc: datetime, tz_offset: int = DEFAULT_TZ
 def format_next(snapshot: dict, now_utc: datetime, tz_offset: int = DEFAULT_TZ_OFFSET) -> str:
     reg = snapshot.get("regen", {})
     out = ["⏱ <b>Next full</b>"]
-    for emoji, label, key in (("⚡", "Energy", "energy"), ("🔴", "Nerve", "nerve")):
+    for emoji, label, key in (("⚡", "Energy", "energy"),
+                              ("🔴", "Nerve", "nerve"),
+                              ("❤️", "Life", "life")):
         b = snapshot.get(key, {})
         cur, mx = b.get("current", 0), b.get("maximum", 0)
         secs = tw.seconds_to_full(cur, mx, reg.get(key, {}))
+        approx = ""
+        if secs is None and key == "life":
+            secs = tw.seconds_to_full_life(cur, mx)   # estimate, no API clock
+            approx = "≈"
         if mx and cur >= mx:
             out.append(f"{emoji} <b>{label}</b> — already full ({cur}/{mx})")
         elif secs:
             clock = now_utc + timedelta(hours=tz_offset, seconds=secs)
             out.append(f"{emoji} <b>{label}</b> {cur}/{mx} — "
-                       f"{tw.fmt_duration_compact(secs)} (≈{clock:%H:%M})")
+                       f"{approx}{tw.fmt_duration_compact(secs)} (≈{clock:%H:%M})")
         else:
             out.append(f"{emoji} <b>{label}</b> {cur}/{mx}")
     return "\n".join(out)

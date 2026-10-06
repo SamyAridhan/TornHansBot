@@ -60,6 +60,17 @@ class FormatStatusTests(unittest.TestCase):
         self.assertIn("<pre>", msg)            # aligned monospace table
         self.assertIn("Med 12m", msg)          # only the still-ticking cooldown
 
+    def test_life_shows_estimated_timer_not_question_mark(self):
+        snap = tw.parse_snapshot({
+            "energy": {"current": 15, "maximum": 100},
+            "life": {"current": 147, "maximum": 325},  # no regen fields from API
+        })
+        msg = bot.format_status(snap, self.now, tz_offset=8)
+        # Life row should show an estimated time, not "?"
+        life_line = [ln for ln in msg.splitlines() if "Life" in ln][0]
+        self.assertNotIn("?", life_line)
+        self.assertIn("~", life_line)   # estimate marker
+
     def test_hospital_line_shown_when_applicable(self):
         import time
         raw = {"energy": {"current": 10, "maximum": 100},

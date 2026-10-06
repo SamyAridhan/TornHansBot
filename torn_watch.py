@@ -315,6 +315,21 @@ def next_sleep_seconds(snapshot: dict, config: dict,
     return max(min_sleep, min(waits))
 
 
+def seconds_to_full_life(current: int, maximum: int) -> Optional[int]:
+    """Life has no API regen clock — it regenerates 5% of max every 5 minutes
+    (wiki). Estimate seconds to full from that. Approximate (we don't know the
+    offset to the next tick), so callers should mark it with ~/≈."""
+    if maximum <= 0:
+        return None
+    if current >= maximum:
+        return 0
+    per_tick = 0.05 * maximum
+    if per_tick <= 0:
+        return None
+    ticks = math.ceil((maximum - current) / per_tick)
+    return ticks * 300
+
+
 def fmt_duration(seconds: Optional[int]) -> str:
     """Human-friendly compact duration: '42m', '1h 05m', '2h', '<1m'."""
     if seconds is None:

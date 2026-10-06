@@ -512,6 +512,18 @@ class LoopModeTests(unittest.TestCase):
         self.assertEqual(rc, 0)
 
 
+class LifeRegenTests(unittest.TestCase):
+    def test_estimates_from_5pct_per_5min(self):
+        # 147/325: 5% of 325 = 16.25/tick, need 178 -> 11 ticks -> 3300s
+        self.assertEqual(tw.seconds_to_full_life(147, 325), 3300)
+
+    def test_full_is_zero(self):
+        self.assertEqual(tw.seconds_to_full_life(325, 325), 0)
+
+    def test_unknown_max_is_none(self):
+        self.assertIsNone(tw.seconds_to_full_life(0, 0))
+
+
 class QuietHoursTests(unittest.TestCase):
     def setUp(self):
         self.cfg = tw.default_config()  # quiet 01:00–08:00 local, enabled
