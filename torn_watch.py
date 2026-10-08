@@ -115,7 +115,7 @@ def default_config() -> dict:
         # times). The poller checks the LOCAL clock each cycle and fires once
         # per day/week the moment the window opens. Times are local hour/minute.
         "schedule": {
-            "digest": {"enabled": True, "hour": 8, "minute": 0},
+            "digest": {"enabled": True, "hour": 8, "minute": 30},
             # weekday: Mon=0 … Sun=6 (Python's date.weekday()).
             "chart": {"enabled": True, "weekday": 6, "hour": 9, "minute": 0},
         },

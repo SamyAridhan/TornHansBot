@@ -578,11 +578,15 @@ class ScheduledSendTests(unittest.TestCase):
         return datetime(y, mo, d, h, mi)
 
     def test_digest_fires_at_or_after_target_once_per_day(self):
-        # Default digest target is 08:00 local.
-        self.assertEqual(
-            tw.due_scheduled_sends(self._local(2026, 10, 8, 7, 59), self.cfg, {}), [])
+        from datetime import timedelta
+        # Fire at/after the configured digest target, not before.
+        h = self.cfg["schedule"]["digest"]["hour"]
+        m = self.cfg["schedule"]["digest"]["minute"]
+        seeded = {"digest_date": "2000-01-01", "chart_week": "2000-W01"}
+        before = self._local(2026, 10, 8, h, m) - timedelta(minutes=1)
+        self.assertNotIn("digest", tw.due_scheduled_sends(before, self.cfg, seeded))
         self.assertIn(
-            "digest", tw.due_scheduled_sends(self._local(2026, 10, 8, 8, 0), self.cfg, {}))
+            "digest", tw.due_scheduled_sends(self._local(2026, 10, 8, h, m), self.cfg, seeded))
         # Already sent today -> not again.
         self.assertNotIn("digest", tw.due_scheduled_sends(
             self._local(2026, 10, 8, 20, 0), self.cfg, {"digest_date": "2026-10-08"}))
