@@ -16,6 +16,8 @@ name: torn-watch
 # Restart for clause-split flavor lines (2026-10-02).
 # Restart for hospital/jail entry alerts (2026-10-03).
 # Nerve: replace 10-mark with "about to cap" nudge (2026-10-03).
+# Drive daily digest + weekly chart off this loop on a fixed local clock, so
+# they stop arriving at GitHub-cron-throttled erratic times (2026-10-08).
 
 on:
   schedule:
@@ -49,10 +51,18 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Install matplotlib (weekly chart render)
+        run: pip install --quiet matplotlib
+
       - name: Restore state
         uses: actions/cache/restore@v4
         with:
-          path: state.json
+          # schedule_state.json tracks the last day the digest fired and the
+          # last ISO week the chart fired, so the loop sends each exactly once
+          # per period across run restarts.
+          path: |
+            state.json
+            schedule_state.json
           key: torn-state-${{ github.run_id }}
           restore-keys: |
             torn-state-
@@ -75,5 +85,7 @@ jobs:
         if: always()
         uses: actions/cache/save@v4
         with:
-          path: state.json
+          path: |
+            state.json
+            schedule_state.json
           key: torn-state-${{ github.run_id }}

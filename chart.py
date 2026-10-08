@@ -156,6 +156,28 @@ def send_text(bot_token: str, chat_id: str, text: str) -> None:
         resp.read()
 
 
+def send_chart(bot_token: str, chat_id: str) -> bool:
+    """Render and send the weekly ledger chart. Returns True on success.
+
+    Importable so the always-on poller can fire the chart on a fixed
+    clock. Falls back to a text message when there's too little history.
+    """
+    series = load_series()
+    if len(series) < 2:
+        send_text(bot_token, chat_id,
+                  "📈 Not enough stat history yet for a chart — "
+                  "give it a few days of logging.")
+        return True
+    png = render_png(series)
+    gain = weekly_gain(series)
+    latest = series[-1]["total"]
+    cap = f"📈 <b>Weekly ledger</b> — total <b>{latest:,}</b>"
+    if gain is not None:
+        cap += f"  (<b>+{gain:,}</b> in 7 days)"
+    send_photo(bot_token, chat_id, png, cap)
+    return True
+
+
 # --------------------------------------------------------------------------
 # Main
 # --------------------------------------------------------------------------

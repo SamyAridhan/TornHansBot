@@ -2,12 +2,15 @@ name: torn-digest
 
 # One friendly morning message: stat gain, gains streak, 7-day trend, your
 # bars, and a Hans line of the day. Reads the committed history.csv, so it's
-# cheap. Runs ~08:52 local (00:52 UTC); minute offset avoids the top-of-hour
-# scheduler crush.
+# cheap.
+#
+# SCHEDULE DISABLED (2026-10-08): GitHub's cron is throttled on public repos
+# and fired this hours late (arriving ~2pm instead of the morning). The daily
+# digest is now sent by the always-on poller (torn_watch.py --loop) on a fixed
+# local clock — see the "schedule" block in default_config(). This workflow is
+# kept for manual sends only (workflow_dispatch / `python3 digest.py`).
 
 on:
-  schedule:
-    - cron: "52 0 * * *"
   workflow_dispatch: {}
 
 concurrency:

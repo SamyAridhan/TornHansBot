@@ -110,6 +110,15 @@ def default_config() -> dict:
         # sleep. Rare/important ones (milestone, hospital-out, jail-out,
         # travel-landed, cooldowns) still come through.
         "quiet_hours": {"enabled": True, "start": 1, "end": 8},
+        # Scheduled sends driven off this always-on poller (GitHub's cron is
+        # throttled and fires hours late, so the digest/chart arrive at erratic
+        # times). The poller checks the LOCAL clock each cycle and fires once
+        # per day/week the moment the window opens. Times are local hour/minute.
+        "schedule": {
+            "digest": {"enabled": True, "hour": 8, "minute": 0},
+            # weekday: Mon=0 … Sun=6 (Python's date.weekday()).
+            "chart": {"enabled": True, "weekday": 6, "hour": 9, "minute": 0},
+        },
     }
 
 
@@ -817,6 +826,81 @@ def save_state(path: str, state: dict) -> None:
 
 
 # --------------------------------------------------------------------------
+# Scheduled sends (digest / chart) driven off the always-on poller
+# --------------------------------------------------------------------------
+SCHEDULE_STATE_PATH = "schedule_state.json"
+
+
+def due_scheduled_sends(now_local: "datetime", config: dict,
+                        sched_state: dict) -> list[str]:
+    """Return which scheduled sends are due now and not yet sent this period.
+
+    `now_local` is wall-clock in the user's timezone. State tracks the last
+    date the digest fired and the last ISO (year, week) the chart fired, so a
+    send happens once per day/week the first cycle at/after the target time —
+    no matter how late GitHub actually started the run.
+    """
+    due: list[str] = []
+    sched = config.get("schedule", {})
+
+    d = sched.get("digest", {})
+    if d.get("enabled"):
+        after = (now_local.hour, now_local.minute) >= (d.get("hour", 8), d.get("minute", 0))
+        today = now_local.date().isoformat()
+        if after and sched_state.get("digest_date") != today:
+            due.append("digest")
+
+    c = sched.get("chart", {})
+    if c.get("enabled"):
+        iso = now_local.isocalendar()
+        week_key = f"{iso[0]}-W{iso[1]:02d}"
+        on_day = now_local.weekday() == c.get("weekday", 6)
+        after = (now_local.hour, now_local.minute) >= (c.get("hour", 9), c.get("minute", 0))
+        if on_day and after and sched_state.get("chart_week") != week_key:
+            due.append("chart")
+
+    return due
+
+
+def run_scheduled_sends(now_utc: "datetime", config: dict, api_key: str,
+                        bot_token: str, chat_id: str, tz_offset: int,
+                        path: str = SCHEDULE_STATE_PATH) -> list[str]:
+    """Fire any digest/chart that's due, record it, and return what was sent.
+
+    Each send is marked in state BEFORE firing so a crash mid-send can't cause
+    an endless resend loop; a one-off failed send is logged and skipped till
+    the next period rather than spamming.
+    """
+    sched_state = load_state(path) or {}
+    now_local = now_utc + timedelta(hours=tz_offset)
+    due = due_scheduled_sends(now_local, config, sched_state)
+    if not due:
+        return []
+
+    sent: list[str] = []
+    for which in due:
+        if which == "digest":
+            sched_state["digest_date"] = now_local.date().isoformat()
+        elif which == "chart":
+            iso = now_local.isocalendar()
+            sched_state["chart_week"] = f"{iso[0]}-W{iso[1]:02d}"
+    save_state(path, sched_state)  # claim the slot before any network call
+
+    for which in due:
+        try:
+            if which == "digest":
+                import digest
+                digest.send_digest(api_key, bot_token, chat_id, tz_offset)
+            elif which == "chart":
+                import chart
+                chart.send_chart(bot_token, chat_id)
+            sent.append(which)
+        except Exception as e:  # noqa: BLE001 — never let a send kill the loop
+            print(f"[loop] scheduled {which} send failed: {e}", file=sys.stderr)
+    return sent
+
+
+# --------------------------------------------------------------------------
 # Orchestration — one poll cycle
 # --------------------------------------------------------------------------
 def run_once(config: dict, fetcher: HttpGet, notifier: Notifier,
@@ -1057,6 +1141,10 @@ def main(argv=None) -> int:
             try:
                 events, prev_state = run_once(config, fetcher, notifier, prev_state, nf)
                 save_state(args.state, prev_state)
+                scheduled = run_scheduled_sends(
+                    now_utc, config, api_key, bot_token, chat_id, tz_offset)
+                if scheduled:
+                    print(f"[loop] scheduled sends fired: {', '.join(scheduled)}")
                 sleep = next_sleep_seconds(prev_state, config)
                 en = prev_state.get("energy", {})
                 nv = prev_state.get("nerve", {})

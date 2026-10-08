@@ -157,6 +157,23 @@ def read_history(path: str = "history.csv") -> list[dict]:
         return []
 
 
+def send_digest(api_key: str, bot_token: str, chat_id: str,
+                tz_offset: int) -> bool:
+    """Build and send the daily digest. Returns True on success.
+
+    Importable so the always-on poller can fire the digest on a fixed
+    clock instead of relying on GitHub's throttled cron.
+    """
+    raw = tw.make_torn_fetcher(api_key, "bars,battlestats")("")
+    snapshot = tw.parse_snapshot(raw)
+    stats = tier2.parse_battlestats(raw)
+    daily = daily_last_totals(read_history(), tz_offset)
+    msg = format_digest(snapshot, stats, daily,
+                        datetime.now(timezone.utc), tz_offset)
+    tw.make_telegram_notifier(bot_token, chat_id)(msg)
+    return True
+
+
 # --------------------------------------------------------------------------
 # Main
 # --------------------------------------------------------------------------
@@ -176,17 +193,17 @@ def main(argv=None) -> int:
         print("Missing env var: TORN_API_KEY", file=sys.stderr)
         return 2
 
-    try:
-        raw = tw.make_torn_fetcher(api_key, "bars,battlestats")("")
-    except tw.TornApiError as e:
-        print(f"Torn API error: {e}", file=sys.stderr)
-        return 3
-    snapshot = tw.parse_snapshot(raw)
-    stats = tier2.parse_battlestats(raw)
-    daily = daily_last_totals(read_history(), tz_offset)
-    msg = format_digest(snapshot, stats, daily, datetime.now(timezone.utc), tz_offset)
-
     if args.dry_run:
+        try:
+            raw = tw.make_torn_fetcher(api_key, "bars,battlestats")("")
+        except tw.TornApiError as e:
+            print(f"Torn API error: {e}", file=sys.stderr)
+            return 3
+        snapshot = tw.parse_snapshot(raw)
+        stats = tier2.parse_battlestats(raw)
+        daily = daily_last_totals(read_history(), tz_offset)
+        msg = format_digest(snapshot, stats, daily,
+                            datetime.now(timezone.utc), tz_offset)
         print(msg)
         return 0
 
@@ -195,7 +212,11 @@ def main(argv=None) -> int:
     if not (bot_token and chat_id):
         print("Missing TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID", file=sys.stderr)
         return 2
-    tw.make_telegram_notifier(bot_token, chat_id)(msg)
+    try:
+        send_digest(api_key, bot_token, chat_id, tz_offset)
+    except tw.TornApiError as e:
+        print(f"Torn API error: {e}", file=sys.stderr)
+        return 3
     print("Digest sent.")
     return 0
 

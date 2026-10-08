@@ -509,6 +509,10 @@ class LoopModeTests(unittest.TestCase):
             rc = tw.main(["--loop", "1", "--state", tempfile.mktemp(suffix=".json")])
         finally:
             tw.make_torn_fetcher, tw.make_telegram_notifier = orig_fetch, orig_notify
+            # The loop may fire a scheduled digest, dropping schedule_state.json
+            # in cwd; don't leave it behind.
+            if os.path.exists(tw.SCHEDULE_STATE_PATH):
+                os.remove(tw.SCHEDULE_STATE_PATH)
         self.assertEqual(rc, 0)
 
 
@@ -560,6 +564,75 @@ class QuietHoursTests(unittest.TestCase):
         events = [{"type": "energy_full", "current": 100, "maximum": 100}]
         kept = tw.filter_quiet(events, self._utc_for_local_hour(15), self.cfg, 8)
         self.assertEqual(len(kept), 1)
+
+
+class ScheduledSendTests(unittest.TestCase):
+    """The daily digest / weekly chart fire off the always-on poller on a
+    fixed local clock (GitHub cron is too throttled to hit a precise time)."""
+
+    def setUp(self):
+        self.cfg = tw.default_config()
+
+    def _local(self, y, mo, d, h, mi):
+        from datetime import datetime
+        return datetime(y, mo, d, h, mi)
+
+    def test_digest_fires_at_or_after_target_once_per_day(self):
+        # Default digest target is 08:00 local.
+        self.assertEqual(
+            tw.due_scheduled_sends(self._local(2026, 10, 8, 7, 59), self.cfg, {}), [])
+        self.assertIn(
+            "digest", tw.due_scheduled_sends(self._local(2026, 10, 8, 8, 0), self.cfg, {}))
+        # Already sent today -> not again.
+        self.assertNotIn("digest", tw.due_scheduled_sends(
+            self._local(2026, 10, 8, 20, 0), self.cfg, {"digest_date": "2026-10-08"}))
+
+    def test_chart_fires_sunday_at_or_after_target_once_per_week(self):
+        # 2026-10-11 is a Sunday; default chart target is Sun 09:00.
+        sun = self._local(2026, 10, 11, 9, 30)
+        self.assertIn("chart", tw.due_scheduled_sends(
+            sun, self.cfg, {"digest_date": "2026-10-11"}))
+        # Before the time on Sunday -> no chart.
+        self.assertNotIn("chart", tw.due_scheduled_sends(
+            self._local(2026, 10, 11, 8, 30), self.cfg, {"digest_date": "2026-10-11"}))
+        # A weekday that isn't Sunday -> no chart.
+        self.assertNotIn("chart", tw.due_scheduled_sends(
+            self._local(2026, 10, 12, 12, 0), self.cfg, {"digest_date": "2026-10-12"}))
+        # Already sent this ISO week -> no chart.
+        iso = sun.isocalendar()
+        wk = f"{iso[0]}-W{iso[1]:02d}"
+        self.assertNotIn("chart", tw.due_scheduled_sends(
+            sun, self.cfg, {"digest_date": "2026-10-11", "chart_week": wk}))
+
+    def test_disabled_schedule_never_fires(self):
+        self.cfg["schedule"]["digest"]["enabled"] = False
+        self.cfg["schedule"]["chart"]["enabled"] = False
+        self.assertEqual(
+            tw.due_scheduled_sends(self._local(2026, 10, 11, 10, 0), self.cfg, {}), [])
+
+    def test_run_scheduled_sends_claims_slot_and_calls_senders(self):
+        import tempfile, os
+        from datetime import datetime, timezone
+        path = os.path.join(tempfile.mkdtemp(), "sched.json")
+        calls = []
+        import digest, chart
+        orig_d, orig_c = digest.send_digest, chart.send_chart
+        digest.send_digest = lambda *a, **k: calls.append("digest")
+        chart.send_chart = lambda *a, **k: calls.append("chart")
+        try:
+            # Sunday 10:00 UTC, tz_offset 0 -> both digest and chart due.
+            now = datetime(2026, 10, 11, 10, 0, tzinfo=timezone.utc)
+            sent = tw.run_scheduled_sends(now, self.cfg, "k", "t", "c", 0, path=path)
+            self.assertIn("digest", sent)
+            self.assertIn("chart", sent)
+            self.assertEqual(sorted(calls), ["chart", "digest"])
+            # Slot is claimed -> a second call the same period sends nothing.
+            calls.clear()
+            self.assertEqual(
+                tw.run_scheduled_sends(now, self.cfg, "k", "t", "c", 0, path=path), [])
+            self.assertEqual(calls, [])
+        finally:
+            digest.send_digest, chart.send_chart = orig_d, orig_c
 
 
 class TornApiErrorTests(unittest.TestCase):

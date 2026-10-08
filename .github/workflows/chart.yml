@@ -1,11 +1,15 @@
 name: torn-chart
 
 # Weekly stat-growth chart: renders history.csv to a PNG and sends it to
-# Telegram. Runs Sunday ~09:08 local (01:08 UTC). Needs matplotlib.
+# Telegram. Needs matplotlib.
+#
+# SCHEDULE DISABLED (2026-10-08): GitHub's cron is throttled on public repos
+# and fired this at erratic times. The weekly chart is now sent by the
+# always-on poller (torn_watch.py --loop) on a fixed local clock — see the
+# "schedule" block in default_config(). This workflow is kept for manual sends
+# only (workflow_dispatch / `python3 chart.py`).
 
 on:
-  schedule:
-    - cron: "8 1 * * 0"
   workflow_dispatch: {}
 
 concurrency:
