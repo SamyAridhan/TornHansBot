@@ -604,6 +604,26 @@ class ScheduledSendTests(unittest.TestCase):
         self.assertNotIn("chart", tw.due_scheduled_sends(
             sun, self.cfg, {"digest_date": "2026-10-11", "chart_week": wk}))
 
+    def test_cold_start_seeds_and_sends_nothing(self):
+        import tempfile, os, json
+        from datetime import datetime, timezone
+        path = os.path.join(tempfile.mkdtemp(), "sched.json")  # no file yet
+        import digest, chart
+        orig_d, orig_c = digest.send_digest, chart.send_chart
+        fired = []
+        digest.send_digest = lambda *a, **k: fired.append("digest")
+        chart.send_chart = lambda *a, **k: fired.append("chart")
+        try:
+            # Sunday well past both targets, but it's the very first run.
+            now = datetime(2026, 10, 11, 10, 0, tzinfo=timezone.utc)
+            self.assertEqual(
+                tw.run_scheduled_sends(now, self.cfg, "k", "t", "c", 0, path=path), [])
+            self.assertEqual(fired, [])            # nothing backfilled
+            seeded = json.load(open(path))
+            self.assertTrue(seeded.get("seeded"))  # period recorded for next time
+        finally:
+            digest.send_digest, chart.send_chart = orig_d, orig_c
+
     def test_disabled_schedule_never_fires(self):
         self.cfg["schedule"]["digest"]["enabled"] = False
         self.cfg["schedule"]["chart"]["enabled"] = False
@@ -611,9 +631,13 @@ class ScheduledSendTests(unittest.TestCase):
             tw.due_scheduled_sends(self._local(2026, 10, 11, 10, 0), self.cfg, {}), [])
 
     def test_run_scheduled_sends_claims_slot_and_calls_senders(self):
-        import tempfile, os
+        import tempfile, os, json
         from datetime import datetime, timezone
         path = os.path.join(tempfile.mkdtemp(), "sched.json")
+        # Pre-seed with an old period so this isn't treated as a cold start
+        # (a cold start seeds silently and sends nothing).
+        with open(path, "w") as f:
+            json.dump({"digest_date": "2000-01-01", "chart_week": "2000-W01"}, f)
         calls = []
         import digest, chart
         orig_d, orig_c = digest.send_digest, chart.send_chart

@@ -873,6 +873,20 @@ def run_scheduled_sends(now_utc: "datetime", config: dict, api_key: str,
     """
     sched_state = load_state(path) or {}
     now_local = now_utc + timedelta(hours=tz_offset)
+
+    # First run ever (or a cold cache miss): don't backfill a stale same-day
+    # digest / same-week chart at whatever odd time we happen to boot — that
+    # mistimed send is exactly what this feature removes. Seed the current
+    # period as "already handled" and start firing from the NEXT one.
+    if "digest_date" not in sched_state and "chart_week" not in sched_state:
+        iso = now_local.isocalendar()
+        save_state(path, {
+            "digest_date": now_local.date().isoformat(),
+            "chart_week": f"{iso[0]}-W{iso[1]:02d}",
+            "seeded": True,
+        })
+        return []
+
     due = due_scheduled_sends(now_local, config, sched_state)
     if not due:
         return []
