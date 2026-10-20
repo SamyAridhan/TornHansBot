@@ -110,6 +110,9 @@ class EvaluateTests(unittest.TestCase):
         self.assertEqual(events, [])
 
     def test_travel_landed_fires(self):
+        # Landing is off by default now (bot.py owns the precise buzzer), but
+        # the poller must still fire it when the alert is explicitly enabled.
+        self.cfg["alerts"]["travel_landed"] = True
         prev = tw.parse_snapshot(snap(travel_left=60, dest="Mexico"))
         cur = tw.parse_snapshot(snap(travel_left=0, dest="Mexico"))
         events, _ = tw.evaluate(prev, cur, self.cfg)

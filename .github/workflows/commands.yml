@@ -44,6 +44,7 @@ jobs:
           path: |
             commands_state.json
             pin_state.json
+            travel_state.json
           key: torn-cmd-${{ github.run_id }}
           restore-keys: |
             torn-cmd-
@@ -64,4 +65,5 @@ jobs:
           path: |
             commands_state.json
             pin_state.json
+            travel_state.json
           key: torn-cmd-${{ github.run_id }}

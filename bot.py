@@ -312,6 +312,94 @@ def get_updates(bot_token: str, offset: Optional[int], timeout: int = 30) -> lis
 
 
 # --------------------------------------------------------------------------
+# Travel-landing buzzer
+# --------------------------------------------------------------------------
+# Fires the instant you touch down ABROAD and keeps buzzing (a fresh ping every
+# few seconds) until you tap "✅ Landed", so you buy and leave fast instead of
+# idling in a foreign country where you get mugged. Timing is exact: the moment
+# we see you're travelling, Torn tells us the seconds left, so we know your
+# landing second in advance and alert right then — no poll lag.
+LAND_STATE_FILE = "travel_state.json"
+LAND_ACK_DATA = "ack_landing"
+LAND_ACK_MARKUP = {"inline_keyboard": [[
+    {"text": "✅ Landed — stop buzzing", "callback_data": LAND_ACK_DATA}]]}
+
+
+def _env_int(name: str, default: int) -> int:
+    try:
+        return int(os.environ.get(name) or default)
+    except ValueError:
+        return default
+
+
+LAND_BUZZ_INTERVAL = _env_int("LAND_BUZZ_INTERVAL", 5)   # seconds between buzzes
+LAND_BUZZ_MAX = _env_int("LAND_BUZZ_MAX", 180)           # give up after this long
+TRAVEL_POLL_SECONDS = _env_int("TRAVEL_POLL_SECONDS", 30)  # how often to recheck travel
+
+
+def _load_land(path: str = LAND_STATE_FILE) -> dict:
+    if not os.path.exists(path):
+        return {}
+    try:
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+def _save_land(d: dict, path: str = LAND_STATE_FILE) -> None:
+    try:
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(d, f)
+    except OSError:
+        pass
+
+
+def is_foreign(destination: str) -> bool:
+    """A real foreign landing (where you buy & risk mugging), not the trip home.
+    Torn reports the home arrival as 'Torn'; anything else is abroad."""
+    d = (destination or "").strip().lower()
+    return bool(d) and d != "torn"
+
+
+def fetch_travel(api_key: str) -> tuple[int, str]:
+    """(seconds_until_landing, destination). 0 seconds => not travelling."""
+    raw = tw.make_torn_fetcher(api_key, "travel")("")
+    tv = tw.parse_snapshot(raw).get("travel", {})
+    return int(tv.get("time_left", 0) or 0), (tv.get("destination") or "")
+
+
+def landing_timeout(now: float, arrival: Optional[float], alerted: bool,
+                    buzzing: bool, base: int = 30,
+                    interval: int = LAND_BUZZ_INTERVAL) -> int:
+    """How long to let getUpdates block this cycle, so we (a) re-buzz on time
+    while buzzing and (b) wake right at touchdown when a landing is pending."""
+    if buzzing:
+        return max(1, min(interval, 5))
+    if arrival is not None and not alerted:
+        secs = arrival - now
+        return 1 if secs <= 0 else max(1, min(base, int(secs)))
+    return base
+
+
+def land_buzz_text(destination: str) -> str:
+    d = tw.html_escape(destination or "your destination")
+    return (f"🛬 <b>LANDED — {d}!</b>\n"
+            f"Buy &amp; bounce — don't idle (mug risk).\n"
+            f"<i>Tap ✅ below to stop the buzzing.</i>")
+
+
+def send_land_buzz(bot_token: str, chat_id: str, destination: str) -> None:
+    _tg_call(bot_token, "sendMessage", {
+        "chat_id": chat_id,
+        "text": land_buzz_text(destination),
+        "parse_mode": "HTML",
+        "disable_web_page_preview": True,
+        "reply_markup": LAND_ACK_MARKUP,
+    })
+
+
+# --------------------------------------------------------------------------
 # Pinned live dashboard — one message the bot edits in place, so there's a
 # always-current status at the top of the chat instead of a stream of pings.
 # --------------------------------------------------------------------------
@@ -562,10 +650,69 @@ def main(argv=None) -> int:
     except ValueError:
         pin_every = 600
     last_pin = 0.0
+
+    # Travel-landing buzzer state (survives restart via travel_state.json).
+    _land = _load_land()
+    land_arrival = _land.get("arrival")       # epoch secs of touchdown, or None
+    land_dest = _land.get("dest", "")
+    land_alerted = bool(_land.get("alerted", False))
+    last_travel = 0.0
+    buzzing = False
+    buzz_next = buzz_stop = 0.0
+
     print(f"[bot] listening (offset={offset}, until +{args.seconds}s, "
           f"once={args.once}, pin={'on' if pin_on else 'off'})")
 
     while True:
+        now = time.time()
+
+        # --- Travel-landing watch (skip while already buzzing / in --once) ---
+        if not args.once and not buzzing and (now - last_travel) >= TRAVEL_POLL_SECONDS:
+            try:
+                tl, dest = fetch_travel(api_key)
+                if tl > 0 and is_foreign(dest):
+                    new_arrival = now + tl
+                    # (re)arm on a new or changed outbound foreign flight
+                    if (land_arrival is None or dest != land_dest
+                            or abs(float(land_arrival) - new_arrival) > 8):
+                        land_arrival, land_dest, land_alerted = new_arrival, dest, False
+                        _save_land({"arrival": land_arrival, "dest": land_dest,
+                                    "alerted": False})
+                elif tl == 0:
+                    # not travelling (or heading home): drop a landing we've
+                    # already fired, or a stale one; keep a just-passed unfired
+                    # arrival briefly so the trigger below still catches it.
+                    if land_arrival is not None and (
+                            land_alerted or now > float(land_arrival) + 20):
+                        land_arrival, land_dest, land_alerted = None, "", False
+                        _save_land({})
+            except Exception as e:  # noqa: BLE001 — never let a check kill the loop
+                print(f"[bot] travel check error (non-fatal): {e}", file=sys.stderr)
+            last_travel = now
+
+        # Fire the buzzer the instant we pass touchdown.
+        if (not args.once and not buzzing and land_arrival is not None
+                and not land_alerted and now >= float(land_arrival)):
+            buzzing = True
+            buzz_next, buzz_stop = now, now + LAND_BUZZ_MAX
+            land_alerted = True
+            _save_land({"arrival": land_arrival, "dest": land_dest, "alerted": True})
+
+        # Buzz on cadence; give up at the cap.
+        if buzzing:
+            if now >= buzz_stop:
+                buzzing = False
+                land_arrival, land_dest, land_alerted = None, "", False
+                _save_land({})
+                send_reply(bot_token, chat_id,
+                           "🔕 Stopped buzzing (timed out). You've landed — go buy!")
+            elif now >= buzz_next:
+                try:
+                    send_land_buzz(bot_token, chat_id, land_dest)
+                except Exception as e:  # noqa: BLE001
+                    print(f"[bot] land buzz error (non-fatal): {e}", file=sys.stderr)
+                buzz_next = now + LAND_BUZZ_INTERVAL
+
         # Keep the pinned dashboard fresh (best-effort, never blocks commands).
         if pin_on and time.time() - last_pin >= pin_every:
             try:
@@ -574,8 +721,10 @@ def main(argv=None) -> int:
                 print(f"[bot] pin refresh error (non-fatal): {e}", file=sys.stderr)
             last_pin = time.time()
 
+        poll_to = 0 if args.once else landing_timeout(
+            now, land_arrival, land_alerted, buzzing)
         try:
-            updates = get_updates(bot_token, offset, timeout=0 if args.once else 30)
+            updates = get_updates(bot_token, offset, timeout=poll_to)
         except Exception as e:  # network blip — pause and retry
             print(f"[bot] getUpdates error: {e}", file=sys.stderr)
             time.sleep(5)
@@ -603,6 +752,16 @@ def main(argv=None) -> int:
                 answer_callback(bot_token, cq_id)  # stop the button spinner
             if str(from_chat) != str(chat_id):
                 continue  # only answer the owner
+
+            # "✅ Landed" tap -> kill the buzzing and clear the landing.
+            if (text or "") == LAND_ACK_DATA:
+                if buzzing:
+                    buzzing = False
+                    send_reply(bot_token, chat_id,
+                               "✅ Got it — buzzing off. Buy &amp; bounce!")
+                land_arrival, land_dest, land_alerted = None, "", False
+                _save_land({})
+                continue
 
             cmd, arg = parse_command(text or "")
             if cmd is None:

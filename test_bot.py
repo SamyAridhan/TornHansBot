@@ -176,5 +176,56 @@ class HandleTests(unittest.TestCase):
                          "https://cdn/x.png")
 
 
+class LandingBuzzTests(unittest.TestCase):
+    """The travel-landing buzzer: foreign-only, exact-second timing, and the
+    getUpdates timeout that keeps buzzing / wakes right at touchdown."""
+
+    def test_foreign_detection(self):
+        self.assertTrue(bot.is_foreign("Mexico"))
+        self.assertTrue(bot.is_foreign("China"))
+        self.assertFalse(bot.is_foreign("Torn"))     # trip home -> no buzz
+        self.assertFalse(bot.is_foreign("torn"))
+        self.assertFalse(bot.is_foreign(""))
+        self.assertFalse(bot.is_foreign(None))
+
+    def test_timeout_idle_is_base(self):
+        # Nothing pending -> long-poll the full base window.
+        self.assertEqual(bot.landing_timeout(1000.0, None, False, False, base=30), 30)
+
+    def test_timeout_wakes_at_arrival(self):
+        # Landing in 12s -> block only ~12s so we wake right at touchdown.
+        self.assertEqual(
+            bot.landing_timeout(1000.0, 1012.0, False, False, base=30), 12)
+        # Landing far off -> capped at base.
+        self.assertEqual(
+            bot.landing_timeout(1000.0, 9999.0, False, False, base=30), 30)
+
+    def test_timeout_past_due_is_one(self):
+        self.assertEqual(
+            bot.landing_timeout(1000.0, 995.0, False, False, base=30), 1)
+
+    def test_timeout_already_alerted_ignores_arrival(self):
+        # Once alerted, the pending arrival no longer shortens the poll.
+        self.assertEqual(
+            bot.landing_timeout(1000.0, 1012.0, True, False, base=30), 30)
+
+    def test_timeout_while_buzzing_is_short(self):
+        # Buzzing -> short poll so we re-buzz on cadence and catch the ack fast.
+        self.assertLessEqual(
+            bot.landing_timeout(1000.0, None, True, True, interval=5), 5)
+
+    def test_land_state_roundtrip(self):
+        import tempfile, os
+        p = os.path.join(tempfile.mkdtemp(), "travel.json")
+        self.assertEqual(bot._load_land(p), {})
+        bot._save_land({"arrival": 123.0, "dest": "China", "alerted": True}, p)
+        self.assertEqual(bot._load_land(p)["dest"], "China")
+
+    def test_buzz_text_has_destination_and_is_escaped(self):
+        txt = bot.land_buzz_text("China")
+        self.assertIn("China", txt)
+        self.assertIn("LANDED", txt)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -1,6 +1,7 @@
 .env
 state.json
 schedule_state.json
+travel_state.json
 __pycache__/
 *.pyc
 

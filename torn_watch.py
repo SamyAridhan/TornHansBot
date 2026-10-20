@@ -64,7 +64,10 @@ def default_config() -> dict:
             "drug_cooldown_ended": True,
             "medical_cooldown_ended": False,
             "booster_cooldown_ended": False,
-            "travel_landed": True,
+            # Landing is now handled by bot.py's precise, buzz-until-ack
+            # travel-landing alert (fires at the exact touchdown second). Keep
+            # this poller alert off so you don't get a second, laggy ping.
+            "travel_landed": False,
             # Smarter alerts (Phase 2):
             "energy_overflow": True,   # warn before energy caps & wastes regen
             "nerve_overflow": True,    # warn before nerve caps & wastes regen
