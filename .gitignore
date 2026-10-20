@@ -1,13 +1,20 @@
 .env
+hans_state.json
+*.tmp
+__pycache__/
+*.pyc
+
+# legacy state files (only read once, for migration)
 state.json
 schedule_state.json
+commands_state.json
+pin_state.json
 travel_state.json
 depart_watch.json
 flights.json
 oc_state.json
 cycles.json
-__pycache__/
-*.pyc
+market_state.json
 
 # Local deep-research artifacts (not part of the bot)
 research_notes/

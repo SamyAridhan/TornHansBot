@@ -1,134 +1,68 @@
-# Torn Watch
+# Hans — your Torn assistant on Telegram
 
-A **read-only** watcher for your own Torn account. It polls the official Torn API
-and sends *you* a Telegram message when something worth acting on happens —
-energy full, nerve full, a cooldown ends, you land from travel. Then **you** open
-Torn and play.
+Hans **reads** your own Torn account through the official API and messages you
+on Telegram when something is worth acting on. **You** open Torn and play — Hans
+never takes a game action, which keeps it within Torn's rules.
 
-It never performs a game action. Reading your own data via the official API is
-allowed; automated *gameplay* is not, and this tool deliberately stays on the
-allowed side of that line. You always click the buttons yourself.
+Runs free, 24/7, on GitHub Actions. No server.
 
-- **Zero dependencies** — standard library only, so it runs anywhere.
-- **Edge-triggered alerts** — one message when energy *becomes* full, not one
-  every poll while it stays full.
-- **Runs free** on GitHub Actions (no server, no credit card).
+## Using it
 
----
+Type **/menu** (or tap the pinned message). Everything is a button:
 
-## What you need to do (one-time, ~5 minutes)
+| Screen | What it does |
+|---|---|
+| 🏠 **Home** (pinned, auto-refreshing) | Energy / nerve / happy / life with time-to-full, cooldowns, travel, next "leave now", OC time |
+| ✈️ **Travel** | Live stock, next restock and **when to leave** per country. Tap a country → switch its *leave now* alert on/off |
+| ⚔️ **OC** | Your OC ready time (read from the faction API, or set with one tap). Reminders 24h / 12h / 8h before |
+| 💪 **Stats** | Battle stats + gain; send the digest or growth chart now |
+| ⚙️ **Settings** | Every alert on/off with one tap; landing-buzz lead, digest time, quiet hours |
 
-### 1. Get a Torn API key
-Torn → **Settings → API Keys** → create a **Limited** (minimal access) key.
-That's enough to read bars/cooldowns/travel. Copy it.
+What arrives on its own:
+- **Bar alerts** — energy reaches your mark, energy/nerve about to cap or full, cooldowns done, hospital/jail in & out, stat milestones. Routine ones hold back during quiet hours (default 01:00–08:00).
+- **Landing buzz** — a ping every 2 s starting 60 s before you land abroad, until you tap ✅ (the buzz messages then delete themselves). Trips home don't buzz.
+- **Leave now** — for watched countries, at the exact minute to take off so you land ~2 min after a restock.
+- **OC reminders**, **morning digest** (08:30) and a **Sunday growth chart**.
 
-### 2. Make a Telegram bot
-- In Telegram, message **@BotFather** → send `/newbot` → follow prompts.
-- It gives you a **bot token** like `123456789:AA...`. Copy it.
-- **Send your new bot any message** (e.g. "hi") — a bot can't message you until
-  you've started a chat with it.
+Typed shortcuts still work: `/status`, `/stock china`, `/price 206`, `/oc in 12h`, `/oc 21/10 14:00`, `/watch mexico on`, `/testland`, `/help`.
 
-### 3. Get your Telegram chat id
-Open this URL in a browser (paste your token in):
+## Setup (one time)
+
+1. **Torn API key** — Torn → Settings → API Keys → a *Limited* key.
+2. **Telegram bot** — message @BotFather, `/newbot`, copy the token, then send your bot "hi".
+3. **Chat id** — open `https://api.telegram.org/bot<TOKEN>/getUpdates` and copy `"chat":{"id":…}`.
+4. In the GitHub repo → Settings → Secrets and variables → Actions, add secrets
+   `TORN_API_KEY`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, and optionally the
+   variable `TZ_OFFSET_HOURS` (default 8).
+5. Actions → **hans** → Run workflow. Hans says hello and pins the dashboard.
+
+## How it's built
+
 ```
-https://api.telegram.org/bot<YOUR_BOT_TOKEN>/getUpdates
+hans/
+  config.py     secrets from env + engine timings
+  settings.py   every option you can change in Telegram (with defaults)
+  store.py      one state file, hans_state.json (atomic saves)
+  net/          Torn API, Telegram API, community travel feeds
+  core/         pure logic: bars & alerts, travel math, OC, stats, chart
+  jobs/         bars · landing · depart · oc · schedule · pin
+  ui/           screens, buttons, router
+  app.py        one loop: run due jobs, long-poll Telegram until the next is due
+tests/          103 tests incl. a simulated flight + buzz
 ```
-Find `"chat":{"id":123456789,...}` in the response — that number is your
-`TELEGRAM_CHAT_ID`.
 
-### 4. Confirm it works locally (optional but recommended)
+- **One bot, one workflow** (`hans.yml`): each run lasts ~5h40m; an hourly
+  request queues the next run so it takes over immediately. State is carried in
+  the Actions cache.
+- **stats.yml** logs battle stats to `history.csv` every 6 h (used by the
+  digest, the chart and `index.html`).
+- Travel stock comes from Prombot (YATA fallback); restock timing from the
+  community restock model. Flight times are learned from your own trips.
+
+Run locally:
+
 ```bash
-python3 torn_watch.py --dry-run      # prints sample alerts, no keys needed
+python3 -m hans demo                      # sample screens, no keys
+TORN_API_KEY=… python3 -m hans check      # your raw payload + parsed view
+python3 -m unittest discover -s tests -t .
 ```
-Then, with your real key set, confirm the API shape matches (no Telegram needed):
-```bash
-TORN_API_KEY=yourkey python3 torn_watch.py --check
-```
-This prints the raw payload next to the parsed snapshot. If the parsed side shows
-`0` where the raw side has real numbers, a field name in `parse_snapshot()` needs
-a tweak — tell me the raw output and I'll fix it. (This is the honest "verify the
-API, don't assume it" step.)
-
----
-
-## Deploy it free (GitHub Actions)
-
-1. Create a new GitHub repo and push these files into it.
-2. Repo → **Settings → Secrets and variables → Actions → New repository secret**,
-   add three secrets:
-   - `TORN_API_KEY`
-   - `TELEGRAM_BOT_TOKEN`
-   - `TELEGRAM_CHAT_ID`
-3. That's it. The workflow in `.github/workflows/poll.yml` runs every 15 minutes.
-   Trigger a first run manually from the **Actions** tab → *torn-watch* → *Run workflow*.
-
-**Note:** GitHub disables scheduled workflows after 60 days with no repo activity —
-just push a commit occasionally, or run it manually, to keep it alive. State is
-kept in the Actions cache (best-effort); a rare cache miss just re-baselines
-silently, never spams.
-
-### Prefer a rock-solid always-on box later?
-The same script runs on any always-free VM (e.g. Oracle Cloud Always Free) via
-cron, where `state.json` on disk persists perfectly:
-```
-*/10 * * * *  cd /path/to/torn-watch && TORN_API_KEY=... TELEGRAM_BOT_TOKEN=... TELEGRAM_CHAT_ID=... python3 torn_watch.py
-```
-
----
-
-## Configuring alerts
-
-Edit `default_config()` in `torn_watch.py`:
-- Turn individual alerts on/off under `"alerts"`.
-- Set a custom threshold under `"thresholds"` (e.g. `"nerve": 24` to be pinged
-  just before nerve overflows and wastes regen). `None` = alert at maximum.
-
-`happy_full` is **off** by default (happy refills fast and is noisy). Everything
-else on.
-
----
-
-## Running the tests
-```bash
-python3 -m unittest -v test_torn_watch
-```
-22 tests cover parsing, the edge-trigger rules (no repeat while full, re-fire
-after refill), cooldown/travel transitions, message formatting, and the
-orchestration. They use injected fake network functions, so they never touch the
-real API.
-
----
-
-## How it's built (so it's easy to extend later)
-
-- `parse_snapshot(raw)` — flattens the API payload defensively.
-- `evaluate(prev, cur, config)` — **pure** function, returns `(events, new_state)`,
-  edge-triggered against the previous snapshot.
-- `run_once(config, fetcher, notifier, prev_state)` — one poll cycle; network
-  functions are injected, which is what makes it testable.
-- `make_torn_fetcher` / `make_telegram_notifier` — the real I/O.
-
-**Adding more alerts** is just: pull more selections in the fetcher, add fields in
-`parse_snapshot`, add rules in `evaluate`, and a line in `format_event`.
-
----
-
-## Tier 2 (`tier2.py`) — built and tested, not yet live-wired
-
-Three extra read-only modules, each unit-tested (`python3 -m unittest test_tier2`):
-
-- **Market-price alerts** — ping when a watched item's cheapest listing drops
-  to/below a target (e.g. a Metal Detector under 1M). Edge-triggered.
-- **Open-OC-slot alerts** — ping when your faction opens an OC slot where your
-  CPR clears a threshold worth taking.
-- **Stats-over-time log** — append battle stats + NNB to a CSV each poll, to chart
-  growth later.
-
-**Status:** the *logic* is done and proven. What's deliberately **not** wired yet is
-the live fetch for these — the Torn market and faction-OC endpoints vary by API
-version, and (per this project's "verify, don't assume" rule) their exact field
-names get confirmed against a real key first. Once confirmed, wiring each into the
-poll loop is a few lines: fetch the selection → parse → call the `tier2.evaluate_*`
-function → send `format_tier2_event`. The market/OC alerts also need a slightly
-broader API key than the minimal one (faction access for OCs); the bars/cooldowns
-watcher stays on the limited key.

@@ -1,0 +1,87 @@
+name: hans
+
+# The whole bot in one job: alerts, landing buzz, depart alerts, OC reminders,
+# digest/chart, pinned dashboard and the button menu.
+#
+# Uptime trick: each run lasts ~5h40m, a new run is requested hourly, and the
+# concurrency guard queues it so it takes over the moment the current one ends.
+# A push to the bot's code restarts it with the new version.
+
+on:
+  schedule:
+    - cron: "19 * * * *"
+  workflow_dispatch: {}
+  push:
+    paths:
+      - "hans/**"
+      - ".github/workflows/hans.yml"
+
+concurrency:
+  group: hans
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 355
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install chart library
+        run: pip install --quiet matplotlib
+
+      - name: Restore state
+        id: state
+        uses: actions/cache/restore@v4
+        with:
+          path: hans_state.json
+          key: hans-state-${{ github.run_id }}
+          restore-keys: |
+            hans-state-
+
+      # One-time carry-over from the old two-bot setup (only if no new state yet).
+      - name: Restore legacy poller state
+        if: steps.state.outputs.cache-matched-key == ''
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            state.json
+            schedule_state.json
+          key: torn-state-legacy-${{ github.run_id }}
+          restore-keys: |
+            torn-state-
+      - name: Restore legacy command-bot state
+        if: steps.state.outputs.cache-matched-key == ''
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            commands_state.json
+            pin_state.json
+            travel_state.json
+            depart_watch.json
+            flights.json
+            oc_state.json
+            cycles.json
+          key: torn-cmd-legacy-${{ github.run_id }}
+          restore-keys: |
+            torn-cmd-
+
+      - name: Run Hans (~5h40m)
+        env:
+          TORN_API_KEY: ${{ secrets.TORN_API_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TZ_OFFSET_HOURS: ${{ vars.TZ_OFFSET_HOURS }}
+          HANS_RUN_SECONDS: "20400"
+        run: python3 -m hans run
+
+      - name: Save state
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: hans_state.json
+          key: hans-state-${{ github.run_id }}
