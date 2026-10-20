@@ -695,9 +695,19 @@ def _auto_read_oc(api_key: str) -> Optional[int]:
     return oc_mod.parse_my_oc_ready(raw, _my_user_id(api_key))
 
 
+def _restock_and_cycle(code: str, it: dict, model: dict, now: float) -> tuple:
+    """(next_restock_epoch, cycle_seconds) for an item — preferring the restock
+    model (interval + last restock), falling back to the feed's own field and a
+    self-learned cycle."""
+    interval, last = travel.model_interval_last(model, code, it.get("id"))
+    if interval and last:
+        return (travel.next_restock(last, interval, now), int(interval))
+    return (it.get("restock"), cycle_seconds(code))
+
+
 def format_stock(code: str, parsed: dict, item_needle: str, now_utc: datetime,
-                 tz_offset: int) -> str:
-    """Live stock + next restock + computed depart time for one country."""
+                 tz_offset: int, model: Optional[dict] = None) -> str:
+    """Live stock + projected next restock + computed depart time for a country."""
     name = travel.country_name(code)
     it = travel.find_item(parsed, code, item_needle)
     if not it:
@@ -706,26 +716,27 @@ def format_stock(code: str, parsed: dict, item_needle: str, now_utc: datetime,
     now = now_utc.timestamp()
     lines = [f"📦 <b>{name} — {tw.html_escape(it['name'] or 'item')}</b>",
              f"Stock: <b>{it['qty']:,}</b>   Buy: <code>${it['cost']:,}</code>"]
-    rs = it.get("restock")
+    rs, cyc = _restock_and_cycle(code, it, model or {}, now)
     if rs:
         local = datetime.fromtimestamp(rs, timezone.utc) + timedelta(hours=tz_offset)
         when = "now" if rs <= now else tw.fmt_duration_compact(int(rs - now))
         lines.append(f"Next restock: <b>{local:%H:%M}</b> (in {when})")
         fs = flight_seconds(code)
         if fs:
-            dep = travel.next_catchable_depart(rs, fs, now, cycle_seconds(code))
+            dep = travel.next_catchable_depart(rs, fs, now, cyc)
             if dep:
                 dloc = datetime.fromtimestamp(dep, timezone.utc) + timedelta(hours=tz_offset)
                 lines.append(f"🛫 Depart <b>{dloc:%H:%M}</b> "
                              f"(in {tw.fmt_duration_compact(max(0, int(dep - now)))}) "
-                             f"→ land ~2m after restock")
+                             f"→ land ~2m after a restock")
             else:
-                lines.append("🛫 That restock's too soon to catch — wait for the next.")
+                lines.append("🛫 Next restock's too soon to catch — "
+                             "I'll aim you at a later one once I know the cycle.")
         else:
-            lines.append("🛫 (fly there once and I'll learn your flight time, "
-                         "then I'll give exact depart times)")
+            lines.append("🛫 (fly there once and I'll learn your flight time → "
+                         "then exact depart times)")
     else:
-        lines.append("<i>No restock time in the feed right now.</i>")
+        lines.append("<i>No restock timing available yet.</i>")
     return "\n".join(lines)
 
 
@@ -784,7 +795,8 @@ def handle(cmd: str, arg: str, api_key: str, now_utc: datetime,
             if not parsed:
                 return ("📦 Stock feed is unreachable right now — try again in a "
                         "moment.", None)
-            return format_stock(code, parsed, needle, now_utc, tz_offset), None
+            model = travel.fetch_restock_model()
+            return format_stock(code, parsed, needle, now_utc, tz_offset, model), None
     except Exception as e:  # noqa: BLE001
         return f"⚠️ Stock lookup hiccup ({tw.html_escape(str(e))}).", None
     try:
@@ -1013,15 +1025,18 @@ def main(argv=None) -> int:
                 enabled = {c: cfg for c, cfg in load_watchlist().items()
                            if cfg.get("enabled")}
                 parsed = travel.fetch_stock() if enabled else {}
+                model = travel.fetch_restock_model() if enabled else {}
                 for code, cfg in enabled.items():
                     it = travel.find_item(parsed, code, cfg.get("item", ""))
-                    rs = it.get("restock") if it else None
+                    if not it:
+                        continue
+                    rs, cyc = _restock_and_cycle(code, it, model, now)
                     if rs:
-                        observe_restock(code, rs)   # learn the cycle over time
+                        observe_restock(code, rs)   # keep a learned-cycle fallback fresh
                     fs = flight_seconds(code)
                     if not (rs and fs):
                         continue
-                    dep = travel.next_catchable_depart(rs, fs, now, cycle_seconds(code))
+                    dep = travel.next_catchable_depart(rs, fs, now, cyc)
                     if dep is None:
                         continue
                     # fire once per restock, within ~one poll window of depart

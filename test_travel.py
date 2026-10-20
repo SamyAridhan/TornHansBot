@@ -90,6 +90,32 @@ class DepartMathTests(unittest.TestCase):
             9340)
 
 
+MODEL = {"updated": 1000, "items": {
+    "chi": {"274": {"interval": 2820, "last": 100000, "sellRate": 31.4}},
+    "mex": {"258": {"interval": 2760, "last": 90000}},
+}}
+
+
+class RestockModelTests(unittest.TestCase):
+    def test_interval_last(self):
+        self.assertEqual(travel.model_interval_last(MODEL, "chi", 274), (2820, 100000))
+        self.assertEqual(travel.model_interval_last(MODEL, "chi", "274"), (2820, 100000))
+        self.assertEqual(travel.model_interval_last(MODEL, "chi", 999), (None, None))
+        self.assertEqual(travel.model_interval_last(MODEL, "zzz", 1), (None, None))
+
+    def test_next_restock_future(self):
+        # last in the future -> itself
+        self.assertEqual(travel.next_restock(100000, 2820, now=99000), 100000)
+
+    def test_next_restock_rolls(self):
+        # last=100000, interval=2820; now=104000 -> 100000+2*2820=105640
+        self.assertEqual(travel.next_restock(100000, 2820, now=104000), 105640)
+
+    def test_next_restock_guards(self):
+        self.assertIsNone(travel.next_restock(0, 2820, now=1))
+        self.assertIsNone(travel.next_restock(100000, 0, now=1))
+
+
 class FetchTests(unittest.TestCase):
     def test_fetch_uses_fallback(self):
         calls = []

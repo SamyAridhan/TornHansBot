@@ -19,6 +19,12 @@ from typing import Callable, Optional
 
 PROMBOT_URL = "https://api.prombot.co.uk/api/travel"
 YATA_URL = "https://yata.yt/api/v1/travel/export/"
+# Community restock model (same one weav3r-style tools use): per item it gives
+# the restock `interval` (cycle, seconds) and `last` (epoch of the last
+# restock), so we can project future restocks — the piece the raw stock feed
+# doesn't reliably include.
+RESTOCK_MODEL_URL = ("https://raw.githubusercontent.com/russianrob/"
+                     "torn-foreign-restock/main/restock-model.json")
 
 # Short country codes used by the Prombot/YATA export, mapped to nice names and
 # the aliases you'd actually type to Hans (/stock china, /watch mex, …).
@@ -164,3 +170,32 @@ def fetch_stock(getter: Callable[[str], dict] = _get_json) -> dict:
         except Exception:  # noqa: BLE001 — try the fallback, then give up
             continue
     return {}
+
+
+# --------------------------------------------------------------------------
+# Restock model (projecting future restocks — pure + fetch)
+# --------------------------------------------------------------------------
+def model_interval_last(model: dict, code: str, item_id) -> tuple:
+    """(interval_seconds, last_restock_epoch) for an item, or (None, None)."""
+    entry = (((model or {}).get("items") or {}).get(code) or {}).get(str(item_id))
+    if not isinstance(entry, dict):
+        return (None, None)
+    return (entry.get("interval"), entry.get("last"))
+
+
+def next_restock(last: int, interval: int, now: float) -> Optional[int]:
+    """Soonest restock at or after `now`, from last + k*interval."""
+    if not last or not interval:
+        return None
+    if last >= now:
+        return int(last)
+    k = int((now - last) // interval) + 1
+    return int(last + k * interval)
+
+
+def fetch_restock_model(getter: Callable[[str], dict] = _get_json) -> dict:
+    try:
+        m = getter(RESTOCK_MODEL_URL)
+        return m if isinstance(m, dict) else {}
+    except Exception:  # noqa: BLE001
+        return {}
