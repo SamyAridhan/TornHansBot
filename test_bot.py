@@ -227,5 +227,47 @@ class LandingBuzzTests(unittest.TestCase):
         self.assertIn("LANDED", txt)
 
 
+class CycleLearnTests(unittest.TestCase):
+    """Restock cycle is learned by watching nextRestock advance between polls."""
+
+    def setUp(self):
+        import tempfile, os
+        self._old = bot.CYCLES_FILE
+        bot.CYCLES_FILE = os.path.join(tempfile.mkdtemp(), "cycles.json")
+
+    def tearDown(self):
+        bot.CYCLES_FILE = self._old
+
+    def test_learns_gap(self):
+        self.assertIsNone(bot.cycle_seconds("chi"))
+        bot.observe_restock("chi", 100000)          # first sighting: just stores
+        self.assertIsNone(bot.cycle_seconds("chi"))
+        bot.observe_restock("chi", 102820)          # +2820s -> learned cycle
+        self.assertEqual(bot.cycle_seconds("chi"), 2820)
+
+    def test_ignores_insane_gap(self):
+        bot.observe_restock("chi", 100000)
+        bot.observe_restock("chi", 100000 + 10 * 3600)  # 10h gap -> rejected
+        self.assertIsNone(bot.cycle_seconds("chi"))
+
+
+class WatchlistTests(unittest.TestCase):
+    def setUp(self):
+        import tempfile, os
+        self._old = bot.WATCHLIST_FILE
+        bot.WATCHLIST_FILE = os.path.join(tempfile.mkdtemp(), "dw.json")
+
+    def tearDown(self):
+        bot.WATCHLIST_FILE = self._old
+
+    def test_seed_and_toggle(self):
+        wl = bot.load_watchlist()
+        self.assertTrue(wl["chi"]["enabled"])          # seeded China ON
+        bot.watch_command("china off")
+        self.assertFalse(bot.load_watchlist()["chi"]["enabled"])
+        bot.watch_command("mexico on")
+        self.assertTrue(bot.load_watchlist()["mex"]["enabled"])
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

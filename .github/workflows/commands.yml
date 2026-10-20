@@ -45,6 +45,10 @@ jobs:
             commands_state.json
             pin_state.json
             travel_state.json
+            depart_watch.json
+            flights.json
+            oc_state.json
+            cycles.json
           key: torn-cmd-${{ github.run_id }}
           restore-keys: |
             torn-cmd-
@@ -66,4 +70,8 @@ jobs:
             commands_state.json
             pin_state.json
             travel_state.json
+            depart_watch.json
+            flights.json
+            oc_state.json
+            cycles.json
           key: torn-cmd-${{ github.run_id }}

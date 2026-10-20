@@ -2,6 +2,10 @@
 state.json
 schedule_state.json
 travel_state.json
+depart_watch.json
+flights.json
+oc_state.json
+cycles.json
 __pycache__/
 *.pyc
 

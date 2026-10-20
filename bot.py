@@ -36,6 +36,8 @@ from typing import Callable, Optional
 
 import torn_watch as tw
 import tier2
+import travel
+import oc as oc_mod
 
 TELEGRAM_API_BASE = "https://api.telegram.org"
 DEFAULT_TZ_OFFSET = 8  # Asia/Singapore (UTC+8); override with TZ_OFFSET_HOURS
@@ -65,6 +67,9 @@ COMMAND_MENU = [
     ("stats", "Battle stats + gain since last log"),
     ("next", "When energy / nerve will be full"),
     ("price", "Cheapest market price: /price <item_id>"),
+    ("stock", "Foreign stock + depart time: /stock china"),
+    ("watch", "Toggle depart alerts: /watch china on|off"),
+    ("oc", "OC reminder: /oc  or  /oc in 12h"),
     ("testland", "Demo the landing buzz (~1 min)"),
     ("help", "Show what I can do"),
 ]
@@ -84,6 +89,15 @@ HELP_TEXT = (
     "\n"
     "💰 <b>/price</b> <code>&lt;id&gt;</code>\n"
     "Cheapest market listing. e.g. <code>/price 206</code>\n"
+    "\n"
+    "📦 <b>/stock</b> <code>&lt;country&gt;</code>\n"
+    "Foreign stock + next restock + when to depart. e.g. <code>/stock china</code>\n"
+    "\n"
+    "👀 <b>/watch</b> <code>&lt;country&gt; on|off</code>\n"
+    "Toggle a 'leave now' depart alert. <code>/watch</code> lists them.\n"
+    "\n"
+    "⚔️ <b>/oc</b>\n"
+    "OC reminders (24h/12h/8h). Auto-read, or set: <code>/oc in 12h</code>.\n"
     "\n"
     "❓ <b>/help</b>\n"
     "This menu.\n"
@@ -117,7 +131,8 @@ def parse_command(text: str) -> tuple[Optional[str], str]:
         cmd = cmd.split("@", 1)[0]
     arg = parts[1].strip() if len(parts) > 1 else ""
     known = {"status", "stats", "next", "price", "help", "start",
-             "preview", "sample", "test", "testland", "buzz"}
+             "preview", "sample", "test", "testland", "buzz",
+             "stock", "watch", "oc"}
     if cmd == "start":
         cmd = "help"
     if cmd in ("sample", "test"):
@@ -474,6 +489,247 @@ def refresh_pin(api_key: str, bot_token: str, chat_id: str, tz_offset: int) -> N
 
 
 # --------------------------------------------------------------------------
+# Travel watchlist + flight-time learning + OC state (JSON-backed)
+# --------------------------------------------------------------------------
+WATCHLIST_FILE = "depart_watch.json"   # separate from the /price watchlist.json
+FLIGHTS_FILE = "flights.json"          # learned one-way flight seconds per country
+OC_FILE = "oc_state.json"
+
+
+def _load_json(path: str, default):
+    if not os.path.exists(path):
+        return default
+    try:
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return default
+
+
+def _save_json(path: str, data) -> None:
+    try:
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f)
+    except OSError:
+        pass
+
+
+def load_watchlist() -> dict:
+    """{code: {enabled: bool, item: str}}. Seeds China/Panda ON the first time."""
+    wl = _load_json(WATCHLIST_FILE, None)
+    if not isinstance(wl, dict) or not wl:
+        wl = {"chi": {"enabled": True, "item": "Panda Plushie"}}
+        _save_json(WATCHLIST_FILE, wl)
+    return wl
+
+
+def watch_command(arg: str) -> str:
+    """/watch  -> list; /watch china on|off [item] -> toggle a route."""
+    wl = load_watchlist()
+    parts = (arg or "").split()
+    if not parts:
+        if not wl:
+            return "👀 <b>Watchlist empty.</b> Add one: <code>/watch china on</code>"
+        rows = []
+        for code, cfg in wl.items():
+            mark = "🟢 on" if cfg.get("enabled") else "⚪️ off"
+            rows.append(f"{mark} · <b>{travel.country_name(code)}</b> "
+                        f"({tw.html_escape(cfg.get('item') or 'any')})")
+        return ("👀 <b>Depart watchlist</b>\n" + "\n".join(rows)
+                + "\n\n<i>Toggle: /watch china off</i>")
+    code = travel.code_for(parts[0])
+    if not code:
+        return (f"🤷 Don't know '{tw.html_escape(parts[0])}'. Try a country like "
+                f"china, mexico, uae…")
+    cfg = wl.get(code, {"enabled": False, "item": ""})
+    if len(parts) >= 2 and parts[1].lower() in ("on", "off"):
+        cfg["enabled"] = (parts[1].lower() == "on")
+    else:
+        cfg["enabled"] = not cfg.get("enabled")  # bare /watch china flips it
+    if len(parts) >= 3:
+        cfg["item"] = " ".join(parts[2:])
+    cfg.setdefault("item", "")
+    wl[code] = cfg
+    _save_json(WATCHLIST_FILE, wl)
+    state = "ON 🟢 — I'll ping you when to depart" if cfg["enabled"] else "OFF ⚪️"
+    return (f"👀 <b>{travel.country_name(code)}</b> depart alert now <b>{state}</b>"
+            + (f"\nItem: {tw.html_escape(cfg['item'])}" if cfg.get("item") else ""))
+
+
+def learn_flight(code: str, seconds: int) -> None:
+    """Record a one-way flight time (keep the longest seen — the start of a
+    trip is the full duration; a mid-trip reading is shorter)."""
+    if not code or seconds <= 0:
+        return
+    flights = _load_json(FLIGHTS_FILE, {})
+    if seconds > int(flights.get(code, 0)):
+        flights[code] = int(seconds)
+        _save_json(FLIGHTS_FILE, flights)
+
+
+def flight_seconds(code: str) -> Optional[int]:
+    v = _load_json(FLIGHTS_FILE, {}).get(code)
+    return int(v) if v else None
+
+
+CYCLES_FILE = "cycles.json"   # learned restock cycle length per country
+
+
+def observe_restock(code: str, restock_epoch: int) -> None:
+    """Learn the restock cycle by watching nextRestock advance between polls.
+    When the restock timestamp jumps forward by a sane amount (5min–3h), that
+    gap is the cycle — stored so depart-timing can roll to a reachable restock."""
+    if not code or not restock_epoch:
+        return
+    data = _load_json(CYCLES_FILE, {})
+    row = data.get(code) or {}
+    last = row.get("last")
+    if last and restock_epoch > last:
+        delta = restock_epoch - last
+        if 300 <= delta <= 3 * 3600:
+            row["cycle"] = int(delta)
+    row["last"] = int(restock_epoch)
+    data[code] = row
+    _save_json(CYCLES_FILE, data)
+
+
+def cycle_seconds(code: str) -> Optional[int]:
+    row = _load_json(CYCLES_FILE, {}).get(code) or {}
+    c = row.get("cycle")
+    return int(c) if c else None
+
+
+def _parse_when(arg: str, tz_offset: int) -> Optional[int]:
+    """Parse '/oc' time input into epoch seconds. Accepts 'in 6h' / 'in 90m',
+    'DD/MM HH:MM' or 'HH:MM' (interpreted in your local tz)."""
+    s = (arg or "").strip().lower()
+    now = datetime.now(timezone.utc)
+    if s.startswith("in "):
+        s = s[3:].strip()
+        try:
+            if s.endswith("h"):
+                return int(now.timestamp() + float(s[:-1]) * 3600)
+            if s.endswith("m"):
+                return int(now.timestamp() + float(s[:-1]) * 60)
+        except ValueError:
+            return None
+    local = now + timedelta(hours=tz_offset)
+    for fmt in ("%d/%m %H:%M", "%d/%m/%y %H:%M", "%H:%M"):
+        try:
+            t = datetime.strptime(s, fmt)
+        except ValueError:
+            continue
+        when = local.replace(hour=t.hour, minute=t.minute, second=0, microsecond=0)
+        if fmt != "%H:%M":
+            when = when.replace(month=t.month, day=t.day)
+        if when < local:               # already passed today -> next day
+            when = when + timedelta(days=1)
+        return int((when - timedelta(hours=tz_offset)).timestamp())
+    return None
+
+
+def oc_command(arg: str, tz_offset: int) -> str:
+    """/oc            -> show the tracked OC time
+       /oc off|clear  -> stop manual tracking (auto-read, if any, resumes)
+       /oc in 6h | /oc 21/10 14:00 -> set it manually."""
+    st = _load_json(OC_FILE, {})
+    a = (arg or "").strip().lower()
+    if not a:
+        rd = st.get("ready")
+        if not rd:
+            return ("🕵️ No OC time tracked yet. I'll auto-read it from the faction "
+                    "API; or set it: <code>/oc in 18h</code> or <code>/oc 21/10 14:00</code>.")
+        local = datetime.fromtimestamp(rd, timezone.utc) + timedelta(hours=tz_offset)
+        src = st.get("source", "auto")
+        return f"🕵️ OC ready ≈ <b>{local:%d/%m %H:%M}</b> (your time, {src})."
+    if a in ("off", "clear", "stop"):
+        _save_json(OC_FILE, {})
+        return "🕵️ OC tracking cleared."
+    when = _parse_when(arg, tz_offset)
+    if not when:
+        return ("🤷 Couldn't read that time. Try <code>/oc in 12h</code> or "
+                "<code>/oc 21/10 14:00</code>.")
+    _save_json(OC_FILE, {"ready": when, "source": "manual", "fired": []})
+    local = datetime.fromtimestamp(when, timezone.utc) + timedelta(hours=tz_offset)
+    return (f"🕵️ OC reminder set for ≈ <b>{local:%d/%m %H:%M}</b> (your time). "
+            f"I'll ping at 24h / 12h / 8h before.")
+
+
+_OC_LOGGED = {"done": False}
+
+
+def _fetch_faction_crimes(api_key: str) -> Optional[dict]:
+    """GET v2 faction crimes (OC 2.0). None if the key can't read it (no faction
+    access) or the call fails — caller falls back to manual /oc."""
+    params = urllib.parse.urlencode({"key": api_key})
+    url = f"{tw.TORN_API_BASE}/v2/faction/crimes?{params}"
+    try:
+        req = urllib.request.Request(
+            url, headers={"User-Agent": "torn-watch/1.0", "Accept": "application/json"})
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+    except Exception:  # noqa: BLE001
+        return None
+    if isinstance(data, dict) and data.get("error"):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _my_user_id(api_key: str) -> int:
+    try:
+        prof = tw.make_torn_fetcher(api_key, "profile")("")
+        return int(prof.get("player_id") or 0)
+    except Exception:  # noqa: BLE001
+        return 0
+
+
+def _auto_read_oc(api_key: str) -> Optional[int]:
+    """Best-effort read of your current OC's ready time from the faction API.
+    Logs the raw crime payload once so the exact field can be confirmed."""
+    raw = _fetch_faction_crimes(api_key)
+    if raw is None:
+        return None
+    if not _OC_LOGGED["done"]:
+        print("[bot] OC crimes sample:", json.dumps(raw)[:1200], file=sys.stderr)
+        _OC_LOGGED["done"] = True
+    return oc_mod.parse_my_oc_ready(raw, _my_user_id(api_key))
+
+
+def format_stock(code: str, parsed: dict, item_needle: str, now_utc: datetime,
+                 tz_offset: int) -> str:
+    """Live stock + next restock + computed depart time for one country."""
+    name = travel.country_name(code)
+    it = travel.find_item(parsed, code, item_needle)
+    if not it:
+        return (f"📦 No stock data for <b>{name}</b> right now "
+                f"(feed may be briefly down — try again).")
+    now = now_utc.timestamp()
+    lines = [f"📦 <b>{name} — {tw.html_escape(it['name'] or 'item')}</b>",
+             f"Stock: <b>{it['qty']:,}</b>   Buy: <code>${it['cost']:,}</code>"]
+    rs = it.get("restock")
+    if rs:
+        local = datetime.fromtimestamp(rs, timezone.utc) + timedelta(hours=tz_offset)
+        when = "now" if rs <= now else tw.fmt_duration_compact(int(rs - now))
+        lines.append(f"Next restock: <b>{local:%H:%M}</b> (in {when})")
+        fs = flight_seconds(code)
+        if fs:
+            dep = travel.next_catchable_depart(rs, fs, now, cycle_seconds(code))
+            if dep:
+                dloc = datetime.fromtimestamp(dep, timezone.utc) + timedelta(hours=tz_offset)
+                lines.append(f"🛫 Depart <b>{dloc:%H:%M}</b> "
+                             f"(in {tw.fmt_duration_compact(max(0, int(dep - now)))}) "
+                             f"→ land ~2m after restock")
+            else:
+                lines.append("🛫 That restock's too soon to catch — wait for the next.")
+        else:
+            lines.append("🛫 (fly there once and I'll learn your flight time, "
+                         "then I'll give exact depart times)")
+    else:
+        lines.append("<i>No restock time in the feed right now.</i>")
+    return "\n".join(lines)
+
+
+# --------------------------------------------------------------------------
 # Command handling
 # --------------------------------------------------------------------------
 def _preview_message() -> str:
@@ -512,6 +768,25 @@ def handle(cmd: str, arg: str, api_key: str, now_utc: datetime,
         return HELP_TEXT, None
     if cmd == "preview":
         return _preview_message(), None
+    if cmd == "watch":
+        return watch_command(arg), None
+    if cmd == "oc":
+        return oc_command(arg, tz_offset), None
+    try:
+        if cmd == "stock":
+            code = travel.code_for(arg.split()[0]) if arg.split() else "chi"
+            if not code:
+                return ("📦 Which country? e.g. <code>/stock china</code>, "
+                        "<code>/stock mexico</code>.", None)
+            wl = load_watchlist().get(code, {})
+            needle = " ".join(arg.split()[1:]) or wl.get("item", "")
+            parsed = travel.fetch_stock()
+            if not parsed:
+                return ("📦 Stock feed is unreachable right now — try again in a "
+                        "moment.", None)
+            return format_stock(code, parsed, needle, now_utc, tz_offset), None
+    except Exception as e:  # noqa: BLE001
+        return f"⚠️ Stock lookup hiccup ({tw.html_escape(str(e))}).", None
     try:
         if cmd in ("status", "next"):
             sel = "bars,cooldowns,travel,profile" if cmd == "status" else "bars"
@@ -663,6 +938,19 @@ def main(argv=None) -> int:
     buzzing = False
     buzz_next = buzz_stop = 0.0
 
+    # Depart-watch + OC-reminder background state.
+    last_depart = 0.0
+    depart_fired: dict = {}           # code -> restock epoch we last pinged for
+    last_oc = 0.0
+    try:
+        depart_poll = int(os.environ.get("DEPART_POLL_SECONDS") or 90)
+    except ValueError:
+        depart_poll = 90
+    try:
+        oc_poll = int(os.environ.get("OC_POLL_SECONDS") or 300)
+    except ValueError:
+        oc_poll = 300
+
     print(f"[bot] listening (offset={offset}, until +{args.seconds}s, "
           f"once={args.once}, pin={'on' if pin_on else 'off'})")
 
@@ -674,6 +962,7 @@ def main(argv=None) -> int:
             try:
                 tl, dest = fetch_travel(api_key)
                 if tl > 0 and is_foreign(dest):
+                    learn_flight(travel.code_for(dest) or "", tl)  # learn flight time
                     new_arrival = now + tl
                     # (re)arm on a new or changed outbound foreign flight
                     if (land_arrival is None or dest != land_dest
@@ -715,6 +1004,69 @@ def main(argv=None) -> int:
                 except Exception as e:  # noqa: BLE001
                     print(f"[bot] land buzz error (non-fatal): {e}", file=sys.stderr)
                 buzz_next = now + LAND_BUZZ_INTERVAL
+
+        # --- Auto-depart watch: ping when it's time to leave for a watched
+        # country (enabled routes only; quiet while a flight's already underway).
+        if (not args.once and not buzzing and land_arrival is None
+                and (now - last_depart) >= depart_poll):
+            try:
+                enabled = {c: cfg for c, cfg in load_watchlist().items()
+                           if cfg.get("enabled")}
+                parsed = travel.fetch_stock() if enabled else {}
+                for code, cfg in enabled.items():
+                    it = travel.find_item(parsed, code, cfg.get("item", ""))
+                    rs = it.get("restock") if it else None
+                    if rs:
+                        observe_restock(code, rs)   # learn the cycle over time
+                    fs = flight_seconds(code)
+                    if not (rs and fs):
+                        continue
+                    dep = travel.next_catchable_depart(rs, fs, now, cycle_seconds(code))
+                    if dep is None:
+                        continue
+                    # fire once per restock, within ~one poll window of depart
+                    if abs(dep - now) <= depart_poll and depart_fired.get(code) != rs:
+                        depart_fired[code] = rs
+                        send_reply(bot_token, chat_id,
+                                   f"🛫 <b>Leave for {travel.country_name(code)} now!</b>\n"
+                                   f"{tw.html_escape(it.get('name') or 'stock')}: "
+                                   f"land ~2m after restock (~{it['qty']:,} in stock). "
+                                   f"Buy &amp; bounce.")
+            except Exception as e:  # noqa: BLE001
+                print(f"[bot] depart watch error (non-fatal): {e}", file=sys.stderr)
+            last_depart = now
+
+        # --- OC reminders: auto-read the ready time (best effort) unless you've
+        # set it manually; ping at 24h / 12h / 8h before.
+        if not args.once and (now - last_oc) >= oc_poll:
+            try:
+                st = _load_json(OC_FILE, {})
+                if st.get("source") != "manual":
+                    ready = _auto_read_oc(api_key)
+                    if ready and ready != st.get("ready"):
+                        st = {"ready": ready, "source": "auto",
+                              "fired": st.get("fired", [])}
+                        _save_json(OC_FILE, st)
+                ready = st.get("ready")
+                if ready:
+                    fired = st.get("fired", [])
+                    due = oc_mod.due_reminders(ready, now, fired=fired)
+                    for off in due:
+                        local = (datetime.fromtimestamp(ready, timezone.utc)
+                                 + timedelta(hours=tz_offset))
+                        send_reply(bot_token, chat_id,
+                                   f"⚔️ <b>OC in ~{oc_mod.fmt_offset(off)}</b> — "
+                                   f"ready ≈ {local:%d/%m %H:%M} your time. "
+                                   f"Don't forget to commit it!")
+                        fired.append(off)
+                    if due:
+                        st["fired"] = fired
+                        _save_json(OC_FILE, st)
+                    if ready < now - 3600:   # OC passed -> reset for the next one
+                        _save_json(OC_FILE, {})
+            except Exception as e:  # noqa: BLE001
+                print(f"[bot] oc reminder error (non-fatal): {e}", file=sys.stderr)
+            last_oc = now
 
         # Keep the pinned dashboard fresh (best-effort, never blocks commands).
         if pin_on and time.time() - last_pin >= pin_every:
