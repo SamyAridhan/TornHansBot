@@ -65,7 +65,7 @@ COMMAND_MENU = [
     ("stats", "Battle stats + gain since last log"),
     ("next", "When energy / nerve will be full"),
     ("price", "Cheapest market price: /price <item_id>"),
-    ("testland", "Demo the landing buzz (~30s)"),
+    ("testland", "Demo the landing buzz (~1 min)"),
     ("help", "Show what I can do"),
 ]
 
@@ -335,8 +335,8 @@ def _env_int(name: str, default: int) -> int:
         return default
 
 
-LAND_BUZZ_INTERVAL = _env_int("LAND_BUZZ_INTERVAL", 5)   # seconds between buzzes
-LAND_BUZZ_MAX = _env_int("LAND_BUZZ_MAX", 180)           # give up after this long
+LAND_BUZZ_INTERVAL = _env_int("LAND_BUZZ_INTERVAL", 2)   # seconds between buzzes
+LAND_BUZZ_MAX = _env_int("LAND_BUZZ_MAX", 60)            # give up after this long
 TRAVEL_POLL_SECONDS = _env_int("TRAVEL_POLL_SECONDS", 30)  # how often to recheck travel
 
 
@@ -772,12 +772,13 @@ def main(argv=None) -> int:
             # so you can feel it and try the ✅ button without flying.
             if cmd == "testland":
                 buzzing = True
-                buzz_next, buzz_stop = time.time(), time.time() + 30
+                buzz_next = time.time()
+                buzz_stop = time.time() + LAND_BUZZ_MAX
                 land_dest, land_alerted = "TEST (demo)", True
                 land_arrival = None
                 send_reply(bot_token, chat_id,
-                           "🔔 <b>Test:</b> starting the landing buzz for ~30s "
-                           "(every 5s). Tap ✅ to stop it early.")
+                           f"🔔 <b>Test:</b> landing buzz for ~{LAND_BUZZ_MAX}s "
+                           f"(every {LAND_BUZZ_INTERVAL}s). Tap ✅ to stop early.")
                 continue
 
 
