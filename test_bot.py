@@ -224,7 +224,7 @@ class LandingBuzzTests(unittest.TestCase):
     def test_buzz_text_has_destination_and_is_escaped(self):
         txt = bot.land_buzz_text("China")
         self.assertIn("China", txt)
-        self.assertIn("LANDED", txt)
+        self.assertIn("landing", txt.lower())
 
 
 class CycleLearnTests(unittest.TestCase):

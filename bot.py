@@ -351,7 +351,9 @@ def _env_int(name: str, default: int) -> int:
 
 
 LAND_BUZZ_INTERVAL = _env_int("LAND_BUZZ_INTERVAL", 2)   # seconds between buzzes
-LAND_BUZZ_MAX = _env_int("LAND_BUZZ_MAX", 60)            # give up after this long
+LAND_BUZZ_MAX = _env_int("LAND_BUZZ_MAX", 60)            # demo (/testland) duration
+LAND_LEAD_SECONDS = _env_int("LAND_LEAD_SECONDS", 60)    # warn this long BEFORE landing
+LAND_POST_SECONDS = _env_int("LAND_POST_SECONDS", 60)    # keep buzzing this long AFTER
 TRAVEL_POLL_SECONDS = _env_int("TRAVEL_POLL_SECONDS", 30)  # how often to recheck travel
 
 
@@ -402,8 +404,9 @@ def landing_timeout(now: float, arrival: Optional[float], alerted: bool,
 
 def land_buzz_text(destination: str) -> str:
     d = tw.html_escape(destination or "your destination")
-    return (f"🛬 <b>LANDED — {d}!</b>\n"
-            f"Buy &amp; bounce — don't idle (mug risk).\n"
+    return (f"🛬 <b>{d} — landing in ~1 min!</b>\n"
+            f"Get your buy ready — hit it the second you land, then bounce "
+            f"(don't idle = mug risk).\n"
             f"<i>Tap ✅ below to stop the buzzing.</i>")
 
 
@@ -994,11 +997,13 @@ def main(argv=None) -> int:
                 print(f"[bot] travel check error (non-fatal): {e}", file=sys.stderr)
             last_travel = now
 
-        # Fire the buzzer the instant we pass touchdown.
+        # Start buzzing ~1 min BEFORE touchdown so you're poised to buy the
+        # instant you land, and keep buzzing a bit past landing until you ack.
         if (not args.once and not buzzing and land_arrival is not None
-                and not land_alerted and now >= float(land_arrival)):
+                and not land_alerted and now >= float(land_arrival) - LAND_LEAD_SECONDS):
             buzzing = True
-            buzz_next, buzz_stop = now, now + LAND_BUZZ_MAX
+            buzz_next = now
+            buzz_stop = float(land_arrival) + LAND_POST_SECONDS
             land_alerted = True
             _save_land({"arrival": land_arrival, "dest": land_dest, "alerted": True})
 
@@ -1091,8 +1096,11 @@ def main(argv=None) -> int:
                 print(f"[bot] pin refresh error (non-fatal): {e}", file=sys.stderr)
             last_pin = time.time()
 
+        # Wake ~1 min before touchdown (the lead), not at touchdown.
+        _land_target = (float(land_arrival) - LAND_LEAD_SECONDS
+                        if land_arrival is not None else None)
         poll_to = 0 if args.once else landing_timeout(
-            now, land_arrival, land_alerted, buzzing)
+            now, _land_target, land_alerted, buzzing)
         try:
             updates = get_updates(bot_token, offset, timeout=poll_to)
         except Exception as e:  # network blip — pause and retry
