@@ -65,6 +65,7 @@ COMMAND_MENU = [
     ("stats", "Battle stats + gain since last log"),
     ("next", "When energy / nerve will be full"),
     ("price", "Cheapest market price: /price <item_id>"),
+    ("testland", "Demo the landing buzz (~30s)"),
     ("help", "Show what I can do"),
 ]
 
@@ -116,11 +117,13 @@ def parse_command(text: str) -> tuple[Optional[str], str]:
         cmd = cmd.split("@", 1)[0]
     arg = parts[1].strip() if len(parts) > 1 else ""
     known = {"status", "stats", "next", "price", "help", "start",
-             "preview", "sample", "test"}
+             "preview", "sample", "test", "testland", "buzz"}
     if cmd == "start":
         cmd = "help"
     if cmd in ("sample", "test"):
         cmd = "preview"
+    if cmd == "buzz":
+        cmd = "testland"
     if cmd not in known:
         return None, ""
     return cmd, arg
@@ -764,6 +767,20 @@ def main(argv=None) -> int:
                 continue
 
             cmd, arg = parse_command(text or "")
+
+            # /testland (or /buzz): demo the real landing buzz on demand, ~30s,
+            # so you can feel it and try the ✅ button without flying.
+            if cmd == "testland":
+                buzzing = True
+                buzz_next, buzz_stop = time.time(), time.time() + 30
+                land_dest, land_alerted = "TEST (demo)", True
+                land_arrival = None
+                send_reply(bot_token, chat_id,
+                           "🔔 <b>Test:</b> starting the landing buzz for ~30s "
+                           "(every 5s). Tap ✅ to stop it early.")
+                continue
+
+
             if cmd is None:
                 send_reply(bot_token, chat_id,
                            "🤷 Didn't catch that. Tap a button or try /help.")
