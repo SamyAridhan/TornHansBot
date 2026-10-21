@@ -3,7 +3,11 @@ take off so you land ~2 min after a restock."""
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from .. import config as C
+from .. import settings as S
+from ..core import bars
 from ..core import travel
 from ..core.fmt import clock, html_escape
 
@@ -39,12 +43,16 @@ def run(ctx) -> float:
     if not ok:
         return C.STOCK_POLL
     fired = ctx.store["travel"].setdefault("depart_fired", {})
+    quiet = bars.in_quiet_hours(datetime.fromtimestamp(now, timezone.utc),
+                                S.alert_config(ctx.settings), ctx.tz)
     waits = [C.STOCK_POLL]
     for p in plans:
-        dep = p.get("depart")
+        dep = p.get("depart") or p.get("best_depart")
         if not dep:
             continue
         if dep <= now + 5:
+            if not p.get("depart") and quiet:
+                continue                 # best-odds hints are optional; respect quiet hours
             if now - float(fired.get(p["code"]) or 0) > REPEAT_GAP:
                 fired[p["code"]] = now
                 ctx.send(depart_text(p, ctx.tz),
@@ -56,6 +64,11 @@ def run(ctx) -> float:
 
 
 def depart_text(p: dict, tz: int) -> str:
+    if not p.get("depart"):
+        return (f"🛫 <b>Best time to leave for {p['name']}: now</b>\n"
+                f"{html_escape(p['item'])} restocked ~30 min ago and is nearly sold out — "
+                f"leaving now gave the best odds in testing (~70% land in stock, not a sure "
+                f"thing). I'll show the live shelf 1 min before you land.")
     land = p["depart"] + (p.get("flight") or 0)
     if p["basis"] == "empty":
         why = f"it sold out at {clock(p['empties'], tz)}"

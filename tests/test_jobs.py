@@ -183,13 +183,24 @@ class DepartTests(unittest.TestCase):
         depart.run(ctx)
         self.assertEqual(len(ctx.tg.sent), 1)          # no repeat
 
-    def test_long_flight_never_gets_a_guess(self):
+    def test_long_flight_gets_best_odds_hint_not_exact_time(self):
         ctx = self.make(T0 + 60)
+        ctx.settings["depart"]["routes"]["mex"]["enabled"] = False
         ctx.settings["depart"]["routes"]["chi"]["enabled"] = True
-        for t in range(0, 3 * 3600, 60):
-            ctx.clock.t = T0 + t
-            depart.run(ctx)
-        self.assertFalse(any("China" in x for x in ctx.tg.texts()))
+        ctx.store["travel"]["stock"]["chi:274"].update(restocked_at=T0, gaps=[2400])
+        ctx.clock.t = T0 + int(0.72 * 2400)          # 16:28 local, not quiet hours
+        depart.run(ctx)
+        self.assertIn("Best time to leave for China", ctx.tg.texts()[-1])
+        self.assertIn("~70%", ctx.tg.texts()[-1])
+
+    def test_best_odds_hint_respects_quiet_hours(self):
+        ctx = self.make(T0 + 11 * 3600)                # 03:00 local
+        ctx.settings["depart"]["routes"]["mex"]["enabled"] = False
+        ctx.settings["depart"]["routes"]["chi"]["enabled"] = True
+        ctx.store["travel"]["stock"]["chi:274"].update(
+            restocked_at=T0 + 11 * 3600 - int(0.72 * 2400), gaps=[2400])
+        depart.run(ctx)
+        self.assertEqual(ctx.tg.sent, [])
 
     def test_quiet_while_flying_or_disabled(self):
         dep = T0 + 1800 + 120 - 1380

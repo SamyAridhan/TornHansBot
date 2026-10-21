@@ -340,3 +340,18 @@ class EmptyShareTests(unittest.TestCase):
         p = travel.plan("chi", "", {"chi": {"items": [{"id": 274, "name": "P", "qty": 10,
                                                       "cost": 1}]}}, {}, {}, tr, 2400)
         self.assertAlmostEqual(p["empty_share"], 0.25)
+
+
+class BestWindowTests(unittest.TestCase):
+    def test_best_window(self):
+        t = {"restocked_at": 10000, "gaps": [2400, 2400, 2400]}
+        self.assertEqual(travel.best_window(t, 10000), 10000 + int(0.72 * 2400))
+        self.assertEqual(travel.best_window(t, 13000), 10000 + int(0.72 * 2400) + 2400)
+        self.assertIsNone(travel.best_window(t, 10000 + 3 * 2400))   # stale phase
+        self.assertIsNone(travel.best_window({}, 10000))
+
+    def test_tracker_learns_gaps(self):
+        tr = {}
+        for when, q in ((0, 0), (60, 900), (600, 0), (2460, 900)):
+            travel.observe_stock(tr, "chi", {"id": 274, "qty": q}, when)
+        self.assertEqual(tr["chi:274"]["gaps"], [2400])
