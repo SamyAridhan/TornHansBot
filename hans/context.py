@@ -92,11 +92,14 @@ class Ctx:
         now, lines = self.now(), []
         try:
             plans, _ok = self.plans()
-            deps = [p for p in plans if p.get("depart")]
+            deps = [(p.get("depart") or p.get("best_depart"), p) for p in plans
+                    if p.get("depart") or p.get("best_depart")]
             if deps and self.settings["depart"]["on"]:
-                p = min(deps, key=lambda x: x["depart"])
-                lines.append(f"🛫 Next leave: <b>{p['name']}</b> {clock(p['depart'], self.tz)} "
-                             f"(in {dur(int(p['depart'] - now))})")
+                when, p = min(deps, key=lambda x: x[0])
+                tag = "" if p.get("depart") else " (best odds)"
+                left = int(when - now)
+                lines.append(f"🛫 Next leave: <b>{p['name']}</b> {clock(when, self.tz)}{tag} "
+                             f"({'now' if left <= 60 else 'in ' + dur(left)})")
         except Exception as e:  # noqa: BLE001
             self.log(f"home extras (travel): {e}")
         ready = self.store["oc"].get("ready")
