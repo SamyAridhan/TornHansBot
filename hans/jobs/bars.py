@@ -30,20 +30,49 @@ def run(ctx) -> float:
 
 
 def track_travel(ctx, snap: dict, now: float) -> None:
-    """Learn flight times and (re)arm / clear the pending landing."""
+    """Learn real flight times and (re)arm / clear the pending landing.
+
+    Landing time = now + time_left (exact to the second)."""
     tv = snap.get("travel", {})
     tl, dest = tv.get("time_left", 0), tv.get("destination") or ""
     land = ctx.store["landing"]
+    learn_trip(ctx, tv, now)
     if tl > 0 and travel.is_foreign(dest):
-        travel.learn_flight(ctx.store["travel"].setdefault("flights", {}),
-                            travel.code_for(dest) or "", tl)
-        arrival = now + tl
+        arrival = now + tl                # proven; the stamps only refine flight length
         if (not land.get("arrival") or land.get("dest") != dest
                 or (abs(float(land["arrival"]) - arrival) > 8 and not land.get("alerted"))):
             land.clear()
             land.update({"arrival": arrival, "dest": dest, "alerted": False})
             ctx.wake("landing")
-    elif tl > 0:
+        return
+    if tl > 0:
         land.clear()                      # heading home: no buzz for Torn
-    elif land.get("arrival") and (land.get("alerted") or now > float(land["arrival"]) + 20):
+        return
+    if land.get("arrival") and (land.get("alerted") or now > float(land["arrival"]) + 20):
         land.clear()                      # landed (already buzzed) or stale
+
+
+def learn_trip(ctx, tv: dict, now: float) -> None:
+    """Measure each outbound flight. Exact when Torn gives departed + arrival
+    stamps; otherwise the longest time_left seen. Saved when the trip ends."""
+    t = ctx.store["travel"]
+    trip = t.get("trip") or {}
+    tl, dest = tv.get("time_left", 0), tv.get("destination") or ""
+    if tl > 0 and travel.is_foreign(dest):
+        if trip.get("dest") != dest:
+            trip = {"dest": dest}
+        exact = tv.get("arrival", 0) - tv.get("departed", 0)
+        # trust the stamps only if they agree with time_left (field meaning unverified)
+        sane = tv.get("departed") and exact >= tl and abs(tv.get("arrival", 0) - (now + tl)) < 120
+        if sane:
+            trip.update(flight=exact, exact=True)
+        elif not trip.get("exact"):
+            trip["flight"] = max(int(trip.get("flight", 0)), tl)
+        trip["method"] = tv.get("method", "")
+        t["trip"] = trip
+    elif trip:
+        if trip.get("flight"):
+            travel.record_flight(t.setdefault("flights", {}),
+                                 travel.code_for(trip["dest"]) or "",
+                                 int(trip["flight"]), trip.get("method", ""))
+        t.pop("trip", None)

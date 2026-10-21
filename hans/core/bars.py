@@ -44,7 +44,10 @@ def parse_snapshot(data: dict) -> dict:
         "player_id": _to_int(data.get("player_id")),
         "cooldowns": {k: _to_int(cooldowns.get(k)) for k in ("drug", "medical", "booster")},
         "travel": {"time_left": _to_int(travel.get("time_left")),
-                   "destination": travel.get("destination") or ""},
+                   "destination": travel.get("destination") or "",
+                   "departed": _to_int(travel.get("departed")),
+                   "arrival": _to_int(travel.get("timestamp")),
+                   "method": str(travel.get("method") or "")},
     }
 
 

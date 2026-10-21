@@ -82,7 +82,7 @@ class Ctx:
         for code in codes:
             item = needle if needle is not None else (routes.get(code) or {}).get("item", "")
             p = travel.plan(code, item, stock, model, t.setdefault("flights", {}),
-                            t.setdefault("cycles", {}), now, C.LAND_AFTER_RESTOCK)
+                            t.setdefault("stock", {}), now, C.LAND_AFTER_RESTOCK)
             if p:
                 out.append(p)
         return out, True

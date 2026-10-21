@@ -122,12 +122,34 @@ def price(item_id: str, name: Optional[str], low: Optional[int]) -> str:
 # --------------------------------------------------------------------------
 # Travel
 # --------------------------------------------------------------------------
+def _pm(p: dict) -> str:
+    """'±6m' when the depart time is an estimate worth flagging."""
+    err = p.get("error") or 0
+    return f" ±{max(1, round(err / 60))}m" if err >= 240 else ""
+
+
 def _depart_bits(p: dict, now: float, tz: int) -> str:
     if p.get("depart"):
-        return f"leave <b>{clock(p['depart'], tz)}</b> (in {dur(int(p['depart'] - now))})"
+        return (f"leave <b>{clock(p['depart'], tz)}</b>{_pm(p)} "
+                f"(in {dur(int(p['depart'] - now))})")
     if not p.get("flight"):
         return "<i>fly there once so I learn the flight time</i>"
     return "<i>no reachable restock yet</i>"
+
+
+def _restock_line(p: dict, now: float, tz: int) -> str:
+    rs = p.get("restock")
+    if not rs:
+        return "<i>No restock timing yet.</i>"
+    when = f"<b>{clock(rs, tz)}</b> (in {'now' if rs <= now else dur(int(rs - now))})"
+    d = dur(p.get("delay"))
+    learned = "" if p.get("delay_learned") else ", not yet measured"
+    if p["basis"] == "empty":
+        return f"Sold out at {clock(p['empties'], tz)} → restock ≈ {when}  <i>(empty + {d}{learned})</i>"
+    if p["basis"] == "selling":
+        return (f"Sells out ≈ {clock(p['empties'], tz)} → restock ≈ {when}  "
+                f"<i>(empty + {d}{learned})</i>")
+    return f"Next restock ≈ {when}  <i>(community estimate)</i>"
 
 
 def travel_screen(plans: list, settings: dict, snapshot: Optional[dict],
@@ -164,20 +186,18 @@ def route_detail(p: Optional[dict], code: str, enabled: bool, now: float, tz: in
         return (f"📦 <b>{name}</b>\nNo stock data right now (feed may be briefly down "
                 f"or the item isn't sold there).")
     out = [f"📦 <b>{name} — {html_escape(p['item'] or 'item')}</b>",
-           f"Stock: <b>{p['qty']:,}</b>   Buy: <code>${p['cost']:,}</code>"]
-    if p.get("restock"):
-        rs = p["restock"]
-        out.append(f"Next restock: <b>{clock(rs, tz)}</b> "
-                   f"(in {'now' if rs <= now else dur(int(rs - now))})"
-                   + (f" · every {dur(p['cycle'])}" if p.get("cycle") else ""))
-    else:
-        out.append("<i>No restock timing available yet.</i>")
+           f"Stock: <b>{p['qty']:,}</b>   Buy: <code>${p['cost']:,}</code>",
+           _restock_line(p, now, tz)]
     if p.get("flight"):
-        out.append(f"Flight: {dur(p['flight'])}")
+        n = p.get("flight_n", 0)
+        out.append(f"Flight ≈ {dur(p['flight'])} (±3%, from your last {n} trip{'s' * (n != 1)})")
     if p.get("depart"):
-        out.append(f"🛫 <b>Leave at {clock(p['depart'], tz)}</b> "
+        out.append(f"🛫 <b>Leave at {clock(p['depart'], tz)}</b>{_pm(p)} "
                    f"(in {dur(max(0, int(p['depart'] - now)))}) → land ~{land_after // 60} min "
                    f"after a restock")
+        if p.get("cycles_ahead"):
+            out.append(f"<i>That's {p['cycles_ahead']} sell-out(s) from now, so it's a rough "
+                       f"guess. I'll keep re-checking and ping you at the right moment.</i>")
     elif p.get("restock"):
         out.append("🛫 " + _depart_bits(p, now, tz))
     out.append("")

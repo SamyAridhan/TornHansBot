@@ -3,6 +3,7 @@
 import unittest
 
 from hans import config as C
+from hans.core import travel
 from hans.jobs import bars as bars_job, depart, landing, oc as oc_job, pin, schedule
 
 from .fakes import Clock, FakeFeeds, FakeTorn, bar, make_ctx, user_payload
@@ -56,13 +57,33 @@ class BarsJobTests(unittest.TestCase):
         ctx = make_ctx(torn=torn, clock=clock)
         bars_job.run(ctx)
         self.assertEqual(ctx.store["landing"]["arrival"], T0 + 1500)
-        self.assertEqual(ctx.store["travel"]["flights"]["chi"], 1500)
-        # a mid-flight re-read (small drift) keeps the same arming
         clock.advance(100)
-        torn.payload = flying("China", 1403)
+        torn.payload = flying("China", 1400)
+        bars_job.run(ctx)
+        self.assertEqual(ctx.store["landing"]["arrival"], T0 + 1500)   # same arming
+        clock.advance(1450)
+        torn.payload = user_payload(travel={"time_left": 0, "destination": "China"})
+        bars_job.run(ctx)
+        self.assertEqual(ctx.store["travel"]["flights"]["chi"], [[1500, ""]])
+
+    def test_exact_flight_from_api_stamps(self):
+        clock = Clock(T0)
+        p = flying("China", 1500)
+        p["travel"].update(departed=T0 - 200, timestamp=T0 + 1500, method="Airstrip")
+        ctx = make_ctx(torn=FakeTorn(p), clock=clock)
+        bars_job.run(ctx)
+        clock.advance(1600)
+        ctx.torn.payload = user_payload(travel={"time_left": 0, "destination": "China"})
+        bars_job.run(ctx)
+        self.assertEqual(ctx.store["travel"]["flights"]["chi"], [[1700, "Airstrip"]])
+
+    def test_ignores_stamps_that_disagree(self):
+        p = flying("China", 1500)
+        p["travel"].update(departed=5, timestamp=T0 + 99999)
+        ctx = make_ctx(torn=FakeTorn(p), clock=Clock(T0))
         bars_job.run(ctx)
         self.assertEqual(ctx.store["landing"]["arrival"], T0 + 1500)
-        self.assertEqual(ctx.store["travel"]["flights"]["chi"], 1500)
+        self.assertEqual(ctx.store["travel"]["trip"]["flight"], 1500)
 
     def test_trip_home_never_arms(self):
         ctx = make_ctx(torn=FakeTorn(flying("Torn", 1500)))
@@ -137,14 +158,14 @@ class DepartTests(unittest.TestCase):
 
     def make(self, now):
         ctx = make_ctx(clock=Clock(now), feeds=FakeFeeds(model=self.MODEL))
-        ctx.store["travel"]["flights"] = {"chi": 1500}
+        ctx.store["travel"]["flights"] = {"chi": [[1500, ""]]}
         ctx.snapshot = {"travel": {"time_left": 0}}
         return ctx
 
     def test_waits_then_fires_once(self):
         dep = T0 + 3000 + 120 - 1500
         ctx = self.make(dep - 200)
-        self.assertEqual(depart.run(ctx), C.DEPART_POLL)
+        self.assertEqual(depart.run(ctx), C.STOCK_POLL)
         ctx.clock.t = dep - 40
         self.assertEqual(depart.run(ctx), 40)
         ctx.clock.t = dep + 1
@@ -164,6 +185,26 @@ class DepartTests(unittest.TestCase):
         ctx.settings["depart"]["on"] = False
         depart.run(ctx)
         self.assertEqual(ctx.tg.sent, [])
+
+    def test_learns_from_live_stock_and_alerts_after_sellout(self):
+        clock = Clock(T0)
+        stock = {"mex": {"items": [{"id": 258, "name": "Jaguar Plushie", "qty": 60,
+                                    "cost": 1, "restock": None}]}}
+        ctx = make_ctx(clock=clock, feeds=FakeFeeds(stock=stock))
+        ctx.settings["depart"]["routes"]["chi"]["enabled"] = False
+        ctx.settings["depart"]["routes"]["mex"]["enabled"] = True
+        ctx.store["travel"]["flights"] = {"mex": [[1380, "Standard"]]}
+        ctx.snapshot = {"travel": {"time_left": 0}}
+        depart.run(ctx)
+        clock.advance(60)
+        stock["mex"]["items"][0]["qty"] = 0                       # sold out
+        depart.run(ctx)
+        zero = ctx.store["travel"]["stock"]["mex:258"]["zero_at"]
+        dep = zero + travel.DEFAULT_DELAY + 120 - 1380            # 15m default delay
+        clock.t = dep + 1
+        depart.run(ctx)
+        self.assertIn("Leave for Mexico now", ctx.tg.sent[-1][1])
+        self.assertIn("sold out at", ctx.tg.sent[-1][1])
 
     def test_no_flight_time_no_alert(self):
         ctx = self.make(T0 + 1620)

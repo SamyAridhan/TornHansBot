@@ -202,26 +202,64 @@ class TravelTests(unittest.TestCase):
         self.assertEqual(travel.next_restock(100000, 2820, 104000), 105640)
         self.assertIsNone(travel.next_restock(0, 2820, 1))
 
-    def test_learn_cycle_and_flight(self):
-        cyc, fl = {}, {}
-        travel.observe_restock(cyc, "chi", 100000)
-        travel.observe_restock(cyc, "chi", 102820)
-        self.assertEqual(cyc["chi"]["cycle"], 2820)
-        travel.observe_restock(cyc, "mex", 1)
-        travel.observe_restock(cyc, "mex", 1 + 10 * 3600)
-        self.assertNotIn("cycle", cyc["mex"])
-        self.assertTrue(travel.learn_flight(fl, "chi", 1500))
-        self.assertFalse(travel.learn_flight(fl, "chi", 900))   # mid-flight reading
-        self.assertEqual(fl["chi"], 1500)
+    def test_flights_median_per_ticket_type(self):
+        fl = {"chi": 13000}                        # old single-number format still works
+        self.assertEqual(travel.flight_estimate(fl, "chi")["sec"], 13000)
+        for sec in (13020, 13260, 13800, 13100):
+            travel.record_flight(fl, "chi", sec, "Standard")
+        est = travel.flight_estimate(fl, "chi")
+        self.assertEqual(est["sec"], 13260)        # median of the standard trips
+        self.assertEqual(est["n"], 4)
+        self.assertEqual((est["lo"], est["hi"]), (int(13260 * .97), int(13260 * 1.03)))
+        travel.record_flight(fl, "chi", 9200, "Airstrip")
+        self.assertEqual(travel.flight_estimate(fl, "chi")["sec"], 9200)   # latest type
+        travel.record_flight(fl, "chi", 5, "x")                           # junk ignored
+        self.assertEqual(len(fl["chi"]), 6)
 
-    def test_plan_uses_model(self):
-        stock = travel.parse_stock(SAMPLE)
-        p = travel.plan("chi", "Panda", stock, MODEL, {"chi": 1440}, {}, now=104000)
-        self.assertEqual(p["restock"], 105640)
-        self.assertEqual(p["depart"], 105640 + 120 - 1440)
-        self.assertEqual(p["cycle"], 2820)
-        none = travel.plan("chi", "Panda", stock, MODEL, {}, {}, now=104000)
-        self.assertIsNone(none["depart"])          # flight unknown
+    def test_stock_tracker_learns_delay_and_rate(self):
+        tr, it = {}, {"id": 274, "qty": 100}
+        travel.observe_stock(tr, "chi", it, 1000)
+        travel.observe_stock(tr, "chi", {"id": 274, "qty": 40}, 1060)     # 1 item/s
+        t = tr["chi:274"]
+        self.assertAlmostEqual(t["rate"], 1.0)
+        travel.observe_stock(tr, "chi", {"id": 274, "qty": 0}, 1120)
+        self.assertEqual(t["zero_at"], 1090)                             # midpoint
+        travel.observe_stock(tr, "chi", {"id": 274, "qty": 0}, 1500)
+        travel.observe_stock(tr, "chi", {"id": 274, "qty": 900}, 1960)
+        self.assertEqual(t["delays"], [840])                             # 1930 - 1090
+        self.assertEqual(t["restock_qty"], 900)
+        self.assertEqual(travel.restock_delay(t), (840, True))
+        self.assertEqual(travel.restock_delay({}), (travel.DEFAULT_DELAY, False))
+
+    def test_predict_restock_bases(self):
+        t = {"zero_at": 5000, "delays": [600], "rate": 2.0, "restock_qty": 800}
+        p = travel.predict_restock(t, 0, {}, "chi", 274, now=5100)
+        self.assertEqual((p["basis"], p["restock"], p["cycle"]), ("empty", 5600, 600 + 400))
+        p = travel.predict_restock(t, 200, {}, "chi", 274, now=5100)
+        self.assertEqual((p["basis"], p["empties"], p["restock"]), ("selling", 5200, 5800))
+        p = travel.predict_restock({}, 50, MODEL, "chi", 274, now=104000)
+        self.assertEqual((p["basis"], p["restock"]), ("model", 105640))
+
+    def test_plan_short_and_long_flights(self):
+        stock = {"mex": {"items": [{"id": 258, "name": "Jaguar Plushie", "qty": 600,
+                                    "cost": 1, "restock": None}]}}
+        track = {"mex:258": {"delays": [900], "rate": 1.0, "restock_qty": 1500}}
+        fl = {"mex": [[1380, "Standard"]]}
+        p = travel.plan("mex", "jaguar", stock, {}, fl, track, now=10000)
+        # sells out at 10600, restocks 900s later, leave so you land 2 min after
+        self.assertEqual(p["depart"], 10600 + 900 + 120 - 1380)
+        self.assertEqual(p["cycles_ahead"], 0)
+        self.assertLess(p["error"], 240)
+        far = {"chi": [[13000, "Standard"]]}
+        stock2 = {"chi": {"items": [{"id": 274, "name": "Panda Plushie", "qty": 0,
+                                     "cost": 1, "restock": None}]}}
+        track2 = {"chi:274": {"zero_at": 10000, "delays": [900], "rate": 1.0,
+                              "restock_qty": 1500}}
+        p2 = travel.plan("chi", "panda", stock2, {}, far, track2, now=10100)
+        self.assertGreater(p2["cycles_ahead"], 0)                        # several sell-outs away
+        self.assertGreaterEqual(p2["error"], 240)                        # flagged as rough
+        self.assertGreaterEqual(p2["depart"], 10100)
+        self.assertIsNone(travel.plan("chi", "panda", stock2, {}, {}, track2, 10100)["depart"])
 
 
 class OcTests(unittest.TestCase):
