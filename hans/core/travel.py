@@ -203,6 +203,10 @@ def observe_stock(track: dict, code: str, item: dict, now: float) -> None:
         elif 0 < qty < prev and dt > 0:
             rate = (prev - qty) / dt                        # items per second
             t["rate"] = rate if not t.get("rate") else 0.7 * t["rate"] + 0.3 * rate
+    # how often the shelf is empty (counts halve every ~2 days of polls)
+    t["n"], t["n0"] = t.get("n", 0) + 1, t.get("n0", 0) + (qty == 0)
+    if t["n"] > 2880:
+        t["n"], t["n0"] = t["n"] // 2, t["n0"] // 2
     t["qty"], t["at"] = qty, now
 
 
@@ -258,20 +262,26 @@ def plan(code: str, item_needle: str, stock: dict, model: dict, flights: dict,
     t = (track or {}).get(f"{code}:{it.get('id')}") or {}
     pr = predict_restock(t, it.get("qty", 0), model, code, it.get("id"), now)
     fl = flight_estimate(flights, code)
-    dep, ahead, err = None, 0, None
+    dep, err, too_long = None, None, False
     if pr["restock"] and fl:
         dep = depart_epoch(pr["restock"], fl["sec"], land_after)
-        if dep < now and pr["cycle"]:
-            ahead = int((now - dep) // pr["cycle"]) + 1
-            dep += ahead * pr["cycle"]
-        elif dep < now:
-            dep = None
-        if dep:
+        if dep < now:
+            # Catching it would mean guessing several sell-outs ahead. Each
+            # cycle drifts by minutes and the stock window is short, so any
+            # clock time here is a coin flip — give none rather than mislead.
+            dep, too_long = None, True
+        else:
             base = {"empty": 60, "selling": 180, "model": 600}.get(pr["basis"], 600)
-            err = int(fl["hi"] - fl["sec"] + base + ahead * 480)
+            err = int(fl["hi"] - fl["sec"] + base)
+            if pr["basis"] == "model":           # no live sell-out to anchor on
+                dep, too_long = None, False
+    elif fl and pr["cycle"] and fl["sec"] > pr["cycle"]:
+        too_long = True
     return {"code": code, "name": country_name(code), "item": it.get("name") or "",
             "id": it.get("id"), "qty": it.get("qty", 0), "cost": it.get("cost", 0),
             "restock": pr["restock"], "empties": pr["empties"], "basis": pr["basis"],
             "delay": pr["delay"], "delay_learned": pr["learned"], "cycle": pr["cycle"],
             "flight": fl["sec"] if fl else None, "flight_n": fl["n"] if fl else 0,
-            "depart": dep, "cycles_ahead": ahead, "error": err}
+            "depart": dep, "too_long": too_long, "error": err,
+            "empty_share": (t["n0"] / t["n"]) if t.get("n", 0) >= 30 else None,
+            "zero_at": t.get("zero_at")}

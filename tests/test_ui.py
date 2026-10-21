@@ -197,6 +197,13 @@ class ViewTests(unittest.TestCase):
         self.assertIn("Mexico", txt)
         self.assertIn("OC ready", txt)
 
+    def test_stock_status_lines(self):
+        p = {"item": "Panda Plushie", "qty": 0, "zero_at": T0 - 300, "restock": T0 + 600}
+        self.assertIn("EMPTY", V.stock_status(p, T0, 8))
+        self.assertIn("in 10m", V.stock_status(p, T0, 8))
+        p2 = {"item": "Panda Plushie", "qty": 812, "empties": T0 + 900}
+        self.assertIn("812 in stock", V.stock_status(p2, T0, 8))
+
     def test_buzz_countdown_then_landed(self):
         self.assertIn("landing in 42s", V.land_buzz("China", 42.7))
         self.assertIn("LANDED", V.land_buzz("China", -3))

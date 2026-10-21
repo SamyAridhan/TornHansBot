@@ -5,6 +5,7 @@ stops, the buzz messages are deleted so the chat stays clean."""
 from __future__ import annotations
 
 from .. import config as C
+from ..core import travel
 from ..ui import keyboards as K, views as V
 
 
@@ -40,7 +41,9 @@ def run(ctx) -> float:
         if now >= b["stop"]:
             stop(ctx, "timeout")
             return 30
-        mid = ctx.send(V.land_buzz(b["dest"], b["arrival"] - now), K.ACK)
+        text = V.land_buzz(b["dest"], b["arrival"] - now)
+        line = stock_line(ctx, b)
+        mid = ctx.send(text + ("\n" + line if line else ""), K.ACK)
         b["mids"].append(mid)
         return C.BUZZ_INTERVAL
 
@@ -59,3 +62,22 @@ def run(ctx) -> float:
     land["alerted"] = True
     start(ctx, land.get("dest", ""), arrival, arrival + C.BUZZ_AFTER_LANDING)
     return 0
+
+
+def stock_line(ctx, b: dict) -> str:
+    """Live shelf status at the destination (refreshed every ~20s while buzzing),
+    so you know on landing whether to buy, wait, or leave."""
+    if b.get("demo"):
+        return ""
+    now = ctx.now()
+    if now - b.get("stock_at", 0) < 20:
+        return b.get("stock_line", "")
+    b["stock_at"] = now
+    try:
+        code = travel.code_for(b.get("dest", ""))
+        plans, _ok = ctx.plans([code]) if code else ([], False)
+        b["stock_line"] = V.stock_status(plans[0], now, ctx.tz) if plans else ""
+    except Exception as e:  # noqa: BLE001
+        ctx.log(f"landing stock line: {e}")
+        b["stock_line"] = ""
+    return b["stock_line"]

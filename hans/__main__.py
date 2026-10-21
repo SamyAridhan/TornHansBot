@@ -92,7 +92,8 @@ def _demo(cfg: Config) -> int:
     plan = {"code": "chi", "name": "China", "item": "Panda Plushie", "qty": 812,
             "cost": 400, "restock": now + 1500, "empties": now + 600, "basis": "selling",
             "delay": 900, "delay_learned": True, "cycle": 2820, "flight": 13020,
-            "flight_n": 4, "depart": now + 180, "cycles_ahead": 4, "error": 2300}
+            "flight_n": 4, "depart": None, "too_long": True, "error": None,
+            "empty_share": 0.41, "zero_at": None}
     print(V.travel_screen([plan], st, snap, now, cfg.tz_offset, True), "\n---")
     print(V.route_detail(plan, "chi", True, now, cfg.tz_offset), "\n---")
     print(V.oc_screen({"ready": now + 15 * 3600, "source": "auto",

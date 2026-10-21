@@ -248,7 +248,7 @@ class TravelTests(unittest.TestCase):
         p = travel.plan("mex", "jaguar", stock, {}, fl, track, now=10000)
         # sells out at 10600, restocks 900s later, leave so you land 2 min after
         self.assertEqual(p["depart"], 10600 + 900 + 120 - 1380)
-        self.assertEqual(p["cycles_ahead"], 0)
+        self.assertFalse(p["too_long"])
         self.assertLess(p["error"], 240)
         far = {"chi": [[13000, "Standard"]]}
         stock2 = {"chi": {"items": [{"id": 274, "name": "Panda Plushie", "qty": 0,
@@ -256,9 +256,10 @@ class TravelTests(unittest.TestCase):
         track2 = {"chi:274": {"zero_at": 10000, "delays": [900], "rate": 1.0,
                               "restock_qty": 1500}}
         p2 = travel.plan("chi", "panda", stock2, {}, far, track2, now=10100)
-        self.assertGreater(p2["cycles_ahead"], 0)                        # several sell-outs away
-        self.assertGreaterEqual(p2["error"], 240)                        # flagged as rough
-        self.assertGreaterEqual(p2["depart"], 10100)
+        self.assertIsNone(p2["depart"])            # would need guessing several sell-outs
+        self.assertTrue(p2["too_long"])
+        p3 = travel.plan("chi", "panda", stock2, MODEL, far, {}, now=104000)
+        self.assertIsNone(p3["depart"])            # no live sell-out anchor -> no time
         self.assertIsNone(travel.plan("chi", "panda", stock2, {}, {}, track2, 10100)["depart"])
 
 
@@ -329,3 +330,13 @@ class StatsTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class EmptyShareTests(unittest.TestCase):
+    def test_counts(self):
+        tr = {}
+        for i in range(40):
+            travel.observe_stock(tr, "chi", {"id": 274, "qty": 0 if i % 4 == 0 else 10}, i * 60)
+        p = travel.plan("chi", "", {"chi": {"items": [{"id": 274, "name": "P", "qty": 10,
+                                                      "cost": 1}]}}, {}, {}, tr, 2400)
+        self.assertAlmostEqual(p["empty_share"], 0.25)

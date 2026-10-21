@@ -134,7 +134,29 @@ def _depart_bits(p: dict, now: float, tz: int) -> str:
                 f"(in {dur(int(p['depart'] - now))})")
     if not p.get("flight"):
         return "<i>fly there once so I learn the flight time</i>"
-    return "<i>no reachable restock yet</i>"
+    if p.get("too_long"):
+        return "<i>can't be timed (flight longer than a restock cycle)</i>"
+    return "<i>waiting for it to sell out to time it</i>"
+
+
+def _empty_odds(p: dict) -> str:
+    sh = p.get("empty_share")
+    return f"empty about {round(sh * 100)}% of the time" if sh is not None else \
+        "often empty between restocks"
+
+
+def stock_status(p: dict, now: float, tz: int) -> str:
+    """One line on the shelf right now — used in the landing buzz too."""
+    if p["qty"] > 0:
+        tail = f", sells out ≈ {clock(p['empties'], tz)}" if p.get("empties") else ""
+        return f"📦 {html_escape(p['item'])}: <b>{p['qty']:,} in stock</b>{tail}"
+    rs = p.get("restock")
+    if p.get("zero_at") and rs:
+        left = int(rs - now)
+        return (f"📦 {html_escape(p['item'])}: <b>EMPTY</b> (sold out "
+                f"{clock(p['zero_at'], tz)}) → restock ≈ <b>{clock(rs, tz)}</b> "
+                f"({'any moment' if left <= 60 else 'in ' + dur(left)})")
+    return f"📦 {html_escape(p['item'])}: <b>EMPTY</b> — restock time unknown"
 
 
 def _restock_line(p: dict, now: float, tz: int) -> str:
@@ -195,10 +217,13 @@ def route_detail(p: Optional[dict], code: str, enabled: bool, now: float, tz: in
         out.append(f"🛫 <b>Leave at {clock(p['depart'], tz)}</b>{_pm(p)} "
                    f"(in {dur(max(0, int(p['depart'] - now)))}) → land ~{land_after // 60} min "
                    f"after a restock")
-        if p.get("cycles_ahead"):
-            out.append(f"<i>That's {p['cycles_ahead']} sell-out(s) from now, so it's a rough "
-                       f"guess. I'll keep re-checking and ping you at the right moment.</i>")
-    elif p.get("restock"):
+    elif p.get("too_long"):
+        out.append(f"🛫 <b>No depart time — honestly can't be timed.</b> Your flight is "
+                   f"longer than one restock cycle (~{dur(p.get('cycle'))}), and each cycle "
+                   f"drifts by several minutes, so you land at a random point: "
+                   f"{_empty_odds(p)}. I'll tell you the live stock and exact restock time "
+                   f"1 min before you land.")
+    elif p.get("restock") or p.get("flight"):
         out.append("🛫 " + _depart_bits(p, now, tz))
     out.append("")
     out.append(f"'Leave now' alert: <b>{'ON 🔔' if enabled else 'OFF'}</b>")

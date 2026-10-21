@@ -154,16 +154,23 @@ class LandingTests(unittest.TestCase):
 
 
 class DepartTests(unittest.TestCase):
-    MODEL = {"items": {"chi": {"274": {"interval": 2820, "last": T0 + 3000}}}}
-
-    def make(self, now):
-        ctx = make_ctx(clock=Clock(now), feeds=FakeFeeds(model=self.MODEL))
-        ctx.store["travel"]["flights"] = {"chi": [[1500, ""]]}
+    def make(self, now, flight=1380):
+        stock = {"mex": {"items": [{"id": 258, "name": "Jaguar Plushie", "qty": 0,
+                                    "cost": 1, "restock": None}]},
+                 "chi": {"items": [{"id": 274, "name": "Panda Plushie", "qty": 0,
+                                    "cost": 1, "restock": None}]}}
+        ctx = make_ctx(clock=Clock(now), feeds=FakeFeeds(stock=stock))
+        for code in ("mex", "chi"):
+            ctx.settings["depart"]["routes"][code]["enabled"] = code == "mex"
+        ctx.store["travel"]["flights"] = {"mex": [[flight, ""]], "chi": [[13000, ""]]}
+        ctx.store["travel"]["stock"] = {
+            "mex:258": {"qty": 0, "at": now, "zero_at": T0, "delays": [1800]},
+            "chi:274": {"qty": 0, "at": now, "zero_at": T0, "delays": [900]}}
         ctx.snapshot = {"travel": {"time_left": 0}}
         return ctx
 
     def test_waits_then_fires_once(self):
-        dep = T0 + 3000 + 120 - 1500
+        dep = T0 + 1800 + 120 - 1380
         ctx = self.make(dep - 200)
         self.assertEqual(depart.run(ctx), C.STOCK_POLL)
         ctx.clock.t = dep - 40
@@ -171,13 +178,21 @@ class DepartTests(unittest.TestCase):
         ctx.clock.t = dep + 1
         depart.run(ctx)
         self.assertEqual(len(ctx.tg.sent), 1)
-        self.assertIn("Leave for China now", ctx.tg.sent[0][1])
+        self.assertIn("Leave for Mexico now", ctx.tg.sent[0][1])
         ctx.clock.t = dep + 10
         depart.run(ctx)
         self.assertEqual(len(ctx.tg.sent), 1)          # no repeat
 
+    def test_long_flight_never_gets_a_guess(self):
+        ctx = self.make(T0 + 60)
+        ctx.settings["depart"]["routes"]["chi"]["enabled"] = True
+        for t in range(0, 3 * 3600, 60):
+            ctx.clock.t = T0 + t
+            depart.run(ctx)
+        self.assertFalse(any("China" in x for x in ctx.tg.texts()))
+
     def test_quiet_while_flying_or_disabled(self):
-        dep = T0 + 3000 + 120 - 1500
+        dep = T0 + 1800 + 120 - 1380
         ctx = self.make(dep)
         ctx.snapshot = {"travel": {"time_left": 300}}
         depart.run(ctx)
@@ -207,7 +222,7 @@ class DepartTests(unittest.TestCase):
         self.assertIn("sold out at", ctx.tg.sent[-1][1])
 
     def test_no_flight_time_no_alert(self):
-        ctx = self.make(T0 + 1620)
+        ctx = self.make(T0 + 540)
         ctx.store["travel"]["flights"] = {}
         depart.run(ctx)
         self.assertEqual(ctx.tg.sent, [])
