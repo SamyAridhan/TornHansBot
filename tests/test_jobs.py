@@ -85,6 +85,24 @@ class BarsJobTests(unittest.TestCase):
         self.assertEqual(ctx.store["landing"]["arrival"], T0 + 1500)
         self.assertEqual(ctx.store["travel"]["trip"]["flight"], 1500)
 
+    def test_back_in_torn_ping_once_on_time(self):
+        clock = Clock(T0)
+        ctx = make_ctx(torn=FakeTorn(flying("Torn", 600)), clock=clock)
+        bars_job.run(ctx)
+        self.assertEqual(landing.run(ctx), 300)
+        clock.t = T0 + 590
+        self.assertEqual(landing.run(ctx), 10)          # wakes right at landing
+        clock.t = T0 + 600
+        landing.run(ctx)
+        landing.run(ctx)
+        self.assertEqual(ctx.tg.texts(), ["🏠 <b>You're back in Torn.</b>"])
+        ctx.settings["landing"]["home"] = False
+        ctx.torn.payload = flying("Torn", 100)
+        bars_job.run(ctx)
+        clock.advance(100)
+        landing.run(ctx)
+        self.assertEqual(len(ctx.tg.sent), 1)            # toggle respected
+
     def test_trip_home_never_arms(self):
         ctx = make_ctx(torn=FakeTorn(flying("Torn", 1500)))
         bars_job.run(ctx)

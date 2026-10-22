@@ -47,15 +47,16 @@ def run(ctx) -> float:
         b["mids"].append(mid)
         return C.BUZZ_INTERVAL
 
+    home_wait = home_ping(ctx, now)
     land = ctx.store["landing"]
     s = ctx.settings["landing"]
     arrival = land.get("arrival")
     if not (arrival and s.get("on") and not land.get("alerted")):
-        return 300
+        return home_wait
     arrival = float(arrival)
     fire_at = arrival - int(s.get("lead", 60))
     if now < fire_at:
-        return min(fire_at - now, 300)
+        return min(fire_at - now, home_wait)
     if now > arrival + 30:            # we missed it (bot was restarting) — drop
         land.clear()
         return 300
@@ -81,3 +82,17 @@ def stock_line(ctx, b: dict) -> str:
         ctx.log(f"landing stock line: {e}")
         b["stock_line"] = ""
     return b["stock_line"]
+
+
+def home_ping(ctx, now: float) -> float:
+    """One plain message when you land back in Torn. Returns seconds to wait."""
+    home = ctx.store["travel"].get("home") or {}
+    arrival = home.get("arrival")
+    if not arrival:
+        return 300
+    if now < arrival:
+        return min(arrival - now, 300)
+    if ctx.settings["landing"].get("home", True) and now < arrival + 600:
+        ctx.send("🏠 <b>You're back in Torn.</b>")
+    home.clear()
+    return 300

@@ -43,7 +43,7 @@ DEFAULTS: dict = {
         "jail": True,
         "milestone": True,
     },
-    "landing": {"on": True, "lead": 60},
+    "landing": {"on": True, "lead": 60, "home": True},
     "depart": {
         "on": True,
         "routes": {code: {"enabled": code == "chi", "item": item}
@@ -75,6 +75,7 @@ SPEC: dict = {
     "lb": ("landing.on", "Landing buzz", "toggle"),
     "ll": ("landing.lead", "Buzz before landing", [30, 60, 90, 120]),
     "da": ("depart.on", "'Leave now' alerts", "toggle"),
+    "lh": ("landing.home", "'Back in Torn' ping", "toggle"),
     # Daily & weekly
     "dg": ("digest.on", "Morning digest", "toggle"),
     "dt": ("digest.time", "Digest time",
@@ -90,7 +91,7 @@ SPEC: dict = {
 PAGES: dict = {
     "alerts": ("🔔 Alerts", ["ef", "em", "eo", "nf", "no", "hf",
                             "dc", "mc", "bc", "ho", "ja", "ms"]),
-    "travel": ("✈️ Travel", ["lb", "ll", "da"]),
+    "travel": ("✈️ Travel", ["lb", "ll", "lh", "da"]),
     "daily": ("📅 Daily & weekly", ["dg", "dt", "wc", "oc", "pn"]),
     "quiet": ("🌙 Quiet hours", ["qh", "qw"]),
 }

@@ -47,7 +47,12 @@ def track_travel(ctx, snap: dict, now: float) -> None:
             ctx.wake("landing")
         return
     if tl > 0:
-        land.clear()                      # heading home: no buzz for Torn
+        land.clear()                      # heading home: no buzz for Torn...
+        home = ctx.store["travel"].setdefault("home", {})
+        if not home.get("arrival") or abs(home["arrival"] - (now + tl)) > 8:
+            home.clear()                  # ...just one simple "back in Torn" ping
+            home["arrival"] = now + tl
+            ctx.wake("landing")
         return
     if land.get("arrival") and (land.get("alerted") or now > float(land["arrival"]) + 20):
         land.clear()                      # landed (already buzzed) or stale
