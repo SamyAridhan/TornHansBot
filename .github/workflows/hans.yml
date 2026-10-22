@@ -95,8 +95,22 @@ jobs:
           [ -d logs ] || exit 0
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add logs/*.csv
-          git diff --cached --quiet && { echo "No new log rows."; exit 0; }
-          git commit -m "chore(logs): trips & restocks $(date -u +%FT%TZ)"
-          for i in 1 2 3; do git pull --rebase -q origin main && git push -q && exit 0; sleep 5; done
-          echo "Could not push logs (will retry next run)"
+          # Merge, don't rebase: the next run may have checked out before the
+          # previous run pushed, so both sides can add the same file. Keep the
+          # latest repo copy and append only rows it doesn't have yet.
+          rm -rf "$RUNNER_TEMP/newlogs" && cp -r logs "$RUNNER_TEMP/newlogs"
+          for i in 1 2 3; do
+            git fetch -q origin main && git reset -q --hard origin/main
+            mkdir -p logs
+            for f in "$RUNNER_TEMP"/newlogs/*.csv; do
+              t="logs/$(basename "$f")"
+              if [ ! -s "$t" ]; then cp "$f" "$t"
+              else tail -n +2 "$f" | grep -vxF -f "$t" >> "$t" || true; fi
+            done
+            git add logs/*.csv
+            git diff --cached --quiet && { echo "No new log rows."; exit 0; }
+            git commit -q -m "chore(logs): trips & restocks $(date -u +%FT%TZ)"
+            git push -q origin HEAD:main && exit 0
+            sleep 5
+          done
+          echo "::warning::Could not push logs"
