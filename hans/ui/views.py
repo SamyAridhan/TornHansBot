@@ -237,6 +237,29 @@ def route_detail(p: Optional[dict], code: str, enabled: bool, now: float, tz: in
     return "\n".join(out)
 
 
+def trip_log(trips: list, tz: int) -> str:
+    """Last trips + how often each way of leaving landed you in stock."""
+    out = ["📒 <b>Trip log</b>"]
+    if not trips:
+        return out[0] + ("\nNo trips logged yet — every foreign trip from now on is "
+                         "recorded here (and in logs/trips.csv in your repo).")
+    icon = {"in_stock": "✅", "empty": "❌", "unknown": "❔"}
+    for tr in trips[-10:][::-1]:
+        how = {"best_odds": "best-odds ping", "exact": "leave-now ping"}.get(tr.get("kind"), "own timing")
+        out.append(f"{icon.get(tr['shelf'], '❔')} {local_dt(tr['land'], tz):%d/%m %H:%M} "
+                   f"{travel.country_name(tr['code'])} · {how}")
+    out.append("")
+    for label, sel in (("On Hans's ping", lambda t: t.get("hint")),
+                       ("Own timing", lambda t: not t.get("hint"))):
+        known = [t for t in trips if sel(t) and t["shelf"] != "unknown"]
+        if known:
+            ok = sum(t["shelf"] == "in_stock" for t in known)
+            out.append(f"{label}: <b>{ok}/{len(known)}</b> landed in stock "
+                       f"({round(100 * ok / len(known))}%)")
+    out.append("<i>Few trips = noisy numbers; it gets meaningful after ~20.</i>")
+    return "\n".join(out)
+
+
 # --------------------------------------------------------------------------
 # OC
 # --------------------------------------------------------------------------

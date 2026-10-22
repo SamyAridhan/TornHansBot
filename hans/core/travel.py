@@ -181,10 +181,12 @@ DEFAULT_DELAY = 15 * 60          # empty -> restock, until we've measured it
 MAX_DELAY = 45 * 60
 
 
-def observe_stock(track: dict, code: str, item: dict, now: float) -> None:
-    """Feed one live reading of an item into its tracker."""
+def observe_stock(track: dict, code: str, item: dict, now: float) -> Optional[dict]:
+    """Feed one live reading of an item into its tracker. Returns a
+    {"event": "sold_out"|"restocked", "at", "qty", "delay"} when one happened."""
+    ev = None
     if not item or item.get("id") is None:
-        return
+        return None
     key = f"{code}:{item['id']}"
     t = track.setdefault(key, {})
     qty, prev, prev_at = int(item.get("qty") or 0), t.get("qty"), t.get("at")
@@ -192,7 +194,9 @@ def observe_stock(track: dict, code: str, item: dict, now: float) -> None:
         dt = now - prev_at
         if qty == 0 and prev > 0:
             t["zero_at"] = now - min(dt, 60) / 2        # sold out between readings
+            ev = {"event": "sold_out", "at": int(t["zero_at"]), "qty": 0, "delay": ""}
         elif qty > 0 and prev == 0:
+            delay = None
             if t.get("zero_at"):
                 delay = now - min(dt, 60) / 2 - t["zero_at"]
                 if 0 < delay <= MAX_DELAY:
@@ -203,6 +207,8 @@ def observe_stock(track: dict, code: str, item: dict, now: float) -> None:
                 t["gaps"] = (t.get("gaps", []) + [int(back - t["restocked_at"])])[-12:]
             t["restocked_at"] = back
             t["restock_qty"] = qty
+            ev = {"event": "restocked", "at": int(back), "qty": qty,
+                  "delay": int(delay) if delay and 0 < delay <= MAX_DELAY else ""}
         elif 0 < qty < prev and dt > 0:
             rate = (prev - qty) / dt                        # items per second
             t["rate"] = rate if not t.get("rate") else 0.7 * t["rate"] + 0.3 * rate
@@ -211,6 +217,20 @@ def observe_stock(track: dict, code: str, item: dict, now: float) -> None:
     if t["n"] > 2880:
         t["n"], t["n0"] = t["n"] // 2, t["n0"] // 2
     t["qty"], t["at"] = qty, now
+    return ev
+
+
+def shelf_at(t: dict, when: float) -> Optional[bool]:
+    """Was the shelf stocked at `when` (e.g. your landing)? From the tracker's
+    last sell-out / restock times; None if we can't tell."""
+    if not t or t.get("qty") is None:
+        return None
+    ra, za = t.get("restocked_at") or 0, t.get("zero_at") or 0
+    if t["qty"] > 0:
+        return not (ra and ra > when)          # restocked after you landed -> was empty
+    if za:
+        return za > when                       # sold out after you landed -> was stocked
+    return False
 
 
 def restock_delay(t: dict) -> tuple:

@@ -6,6 +6,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from .. import config as C
+from .. import logbook
 from .. import settings as S
 from ..core import bars
 from ..core import travel
@@ -28,7 +29,12 @@ def track_stock(ctx) -> None:
     for code, r in ctx.settings["depart"]["routes"].items():
         item = travel.find_item(stock, code, (r or {}).get("item", ""))
         if item:
-            travel.observe_stock(track, code, item, now)
+            ev = travel.observe_stock(track, code, item, now)
+            if ev:
+                logbook.append(logbook.RESTOCKS, {
+                    "at_utc": logbook.iso(ev["at"]), "country": code, "item": item["name"],
+                    "event": ev["event"], "qty": ev["qty"],
+                    "empty_to_restock_s": ev["delay"]}, ctx.cfg.log_dir)
 
 
 def run(ctx) -> float:
@@ -55,6 +61,8 @@ def run(ctx) -> float:
                 continue                 # best-odds hints are optional; respect quiet hours
             if now - float(fired.get(p["code"]) or 0) > REPEAT_GAP:
                 fired[p["code"]] = now
+                ctx.store["travel"].setdefault("hints", {})[p["code"]] = {
+                    "at": int(now), "kind": "exact" if p.get("depart") else "best_odds"}
                 ctx.send(depart_text(p, ctx.tz),
                          {"inline_keyboard": [[{"text": f"📦 {p['name']} details",
                                                 "callback_data": f"new:stk:{p['code']}"}]]})

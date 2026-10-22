@@ -6,6 +6,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from .. import config as C
+from .. import logbook
 from .. import settings as S
 from ..core import bars, travel
 from ..core.messages import format_message
@@ -69,10 +70,44 @@ def learn_trip(ctx, tv: dict, now: float) -> None:
         elif not trip.get("exact"):
             trip["flight"] = max(int(trip.get("flight", 0)), tl)
         trip["method"] = tv.get("method", "")
+        trip["arrival"] = int(now + tl)
         t["trip"] = trip
     elif trip:
+        code = travel.code_for(trip["dest"]) or ""
         if trip.get("flight"):
-            travel.record_flight(t.setdefault("flights", {}),
-                                 travel.code_for(trip["dest"]) or "",
+            travel.record_flight(t.setdefault("flights", {}), code,
                                  int(trip["flight"]), trip.get("method", ""))
+        log_trip(ctx, trip, code)
         t.pop("trip", None)
+
+
+def log_trip(ctx, trip: dict, code: str) -> None:
+    """Write the finished trip to logs/trips.csv and keep the last 30 in state
+    (Travel → 📒 Trip log), so we can see what actually works."""
+    t = ctx.store["travel"]
+    arrival = trip.get("arrival") or 0
+    departed = arrival - int(trip.get("flight") or 0)
+    hint = (t.get("hints") or {}).get(code) or {}
+    followed = bool(hint) and -120 <= departed - hint.get("at", 0) <= 900
+    route = (ctx.settings["depart"]["routes"].get(code) or {})
+    item, shelf, qty, eta = route.get("item", ""), None, "", None
+    try:
+        plans, _ok = ctx.plans([code])
+        if plans:
+            p = plans[0]
+            item, qty = p["item"], p["qty"]
+            shelf = travel.shelf_at(t.get("stock", {}).get(f"{code}:{p['id']}"), arrival)
+            eta = p.get("restock") if shelf is False else None
+    except Exception as e:  # noqa: BLE001
+        ctx.log(f"trip log: {e}")
+    row = {"departed_utc": logbook.iso(departed), "landed_utc": logbook.iso(arrival),
+           "country": code, "item": item, "method": trip.get("method", ""),
+           "flight_s": int(trip.get("flight") or 0),
+           "hint": "yes" if followed else "no",
+           "hint_kind": hint.get("kind", "") if followed else "",
+           "shelf_at_landing": {True: "in_stock", False: "empty"}.get(shelf, "unknown"),
+           "qty_after": qty, "restock_eta_utc": logbook.iso(eta)}
+    logbook.append(logbook.TRIPS, row, ctx.cfg.log_dir)
+    t["trips"] = (t.get("trips", []) + [{"land": arrival, "code": code, "hint": followed,
+                                         "kind": row["hint_kind"],
+                                         "shelf": row["shelf_at_landing"]}])[-30:]

@@ -139,7 +139,7 @@ def make_ctx(torn=None, feeds=None, clock=None, legacy=None, state=None):
             json.dump(state, f)
     store = Store(path).load()
     cfg = Config(api_key="k", bot_token="t", chat_id="42", tz_offset=8,
-                 state_path=path, history_path=os.path.join(d, "history.csv"))
+                 state_path=path, history_path=os.path.join(d, "history.csv"), log_dir=d)
     ctx = Ctx(cfg, store, FakeTG(), torn or FakeTorn(), feeds or FakeFeeds(),
               clock or Clock())
     from hans import jobs

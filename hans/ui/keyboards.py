@@ -61,7 +61,8 @@ def travel_menu(routes: dict) -> dict:
             .replace("United Kingdom", "UK").replace("South Africa", "S. Africa")
         btns.append(_b(("🟢 " if on else "") + label, f"stk:{code}"))
     rows = [btns[i:i + 3] for i in range(0, len(btns), 3)]
-    rows.append([_b("⚙️ Travel settings", "nav:set:travel"), _b("⬅ Home", "nav:home")])
+    rows.append([_b("📒 Trip log", "nav:log"), _b("⚙️ Settings", "nav:set:travel")])
+    rows.append([_b("⬅ Home", "nav:home")])
     return _kb(rows)
 
 

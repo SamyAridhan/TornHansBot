@@ -204,6 +204,14 @@ class ViewTests(unittest.TestCase):
         p2 = {"item": "Panda Plushie", "qty": 812, "empties": T0 + 900}
         self.assertIn("812 in stock", V.stock_status(p2, T0, 8))
 
+    def test_trip_log_view(self):
+        trips = [{"land": T0, "code": "chi", "hint": True, "kind": "best_odds", "shelf": "in_stock"},
+                 {"land": T0 + 9000, "code": "chi", "hint": False, "kind": "", "shelf": "empty"}]
+        txt = V.trip_log(trips, 8)
+        self.assertIn("On Hans's ping: <b>1/1</b>", txt)
+        self.assertIn("Own timing: <b>0/1</b>", txt)
+        self.assertIn("No trips logged", V.trip_log([], 8))
+
     def test_buzz_countdown_then_landed(self):
         self.assertIn("landing in 42s", V.land_buzz("China", 42.7))
         self.assertIn("LANDED", V.land_buzz("China", -3))

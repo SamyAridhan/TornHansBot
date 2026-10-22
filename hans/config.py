@@ -23,6 +23,7 @@ class Config:
     run_seconds: int = 20400        # one GitHub Actions run (~5h40m)
     state_path: str = "hans_state.json"
     history_path: str = "history.csv"
+    log_dir: str = "."
 
     @classmethod
     def from_env(cls) -> "Config":
@@ -34,6 +35,7 @@ class Config:
             run_seconds=_env_int("HANS_RUN_SECONDS", 20400),
             state_path=os.environ.get("HANS_STATE", "hans_state.json"),
             history_path=os.environ.get("HANS_HISTORY", "history.csv"),
+            log_dir=os.environ.get("HANS_LOG_DIR", "."),
         )
 
     def missing(self) -> list[str]:

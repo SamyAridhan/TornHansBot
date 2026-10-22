@@ -63,6 +63,8 @@ def render(ctx, screen: str) -> tuple[str, dict]:
         plans, ok = ctx.plans()
         return (V.travel_screen(plans, ctx.settings, ctx.snapshot, now, tz, ok),
                 K.travel_menu(ctx.settings["depart"]["routes"]))
+    if screen == "log":
+        return V.trip_log(ctx.store["travel"].get("trips", []), tz), K.back("travel", "⬅ Travel")
     if screen.startswith("stk:"):
         code = screen[4:]
         plans, _ok = ctx.plans([code])

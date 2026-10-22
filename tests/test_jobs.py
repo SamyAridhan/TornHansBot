@@ -102,6 +102,41 @@ class BarsJobTests(unittest.TestCase):
         self.assertEqual(ctx.store["landing"], {})
 
 
+class LogbookTests(unittest.TestCase):
+    def test_restock_events_and_trip_are_logged(self):
+        from hans import logbook
+        clock = Clock(T0)
+        stock = {"chi": {"items": [{"id": 274, "name": "Panda Plushie", "qty": 50,
+                                    "cost": 1, "restock": None}]}}
+        torn = FakeTorn(flying("China", 600))
+        ctx = make_ctx(torn=torn, clock=clock, feeds=FakeFeeds(stock=stock))
+        ctx.store["travel"]["hints"] = {"chi": {"at": T0 - 13000, "kind": "best_odds"}}
+        depart.run(ctx)
+        bars_job.run(ctx)                               # take-off seen
+        clock.advance(60)
+        stock["chi"]["items"][0]["qty"] = 0             # sells out mid-flight
+        depart.run(ctx)
+        clock.advance(600)
+        torn.payload = user_payload(travel={"time_left": 0, "destination": "China"})
+        bars_job.run(ctx)                               # landed: still empty
+        rs = logbook.read(logbook.RESTOCKS, ctx.cfg.log_dir)
+        self.assertEqual([r["event"] for r in rs], ["sold_out"])
+        trips = logbook.read(logbook.TRIPS, ctx.cfg.log_dir)
+        self.assertEqual(len(trips), 1)
+        self.assertEqual(trips[0]["country"], "chi")
+        self.assertEqual(trips[0]["shelf_at_landing"], "empty")
+        self.assertEqual(ctx.store["travel"]["trips"][-1]["shelf"], "empty")
+
+    def test_shelf_at(self):
+        t = {"qty": 100, "restocked_at": 500, "zero_at": None}
+        self.assertTrue(travel.shelf_at(t, 600))        # restocked before landing
+        self.assertFalse(travel.shelf_at(t, 400))       # restocked after landing
+        t0 = {"qty": 0, "zero_at": 700}
+        self.assertTrue(travel.shelf_at(t0, 600))       # sold out after landing
+        self.assertFalse(travel.shelf_at(t0, 800))
+        self.assertIsNone(travel.shelf_at({}, 1))
+
+
 class LandingTests(unittest.TestCase):
     def setUp(self):
         self.clock = Clock(T0)
