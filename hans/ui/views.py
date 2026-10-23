@@ -243,7 +243,7 @@ def trip_log(trips: list, tz: int) -> str:
     if not trips:
         return out[0] + ("\nNo trips logged yet — every foreign trip from now on is "
                          "recorded here (and in logs/trips.csv in your repo).")
-    icon = {"in_stock": "✅", "empty": "❌", "unknown": "❔"}
+    icon = {"in_stock": "✅", "empty": "❌", "just_missed": "⚠️", "unknown": "❔"}
     for tr in trips[-10:][::-1]:
         how = {"best_odds": "best-odds ping", "exact": "leave-now ping"}.get(tr.get("kind"), "own timing")
         out.append(f"{icon.get(tr['shelf'], '❔')} {local_dt(tr['land'], tz):%d/%m %H:%M} "

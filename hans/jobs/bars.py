@@ -101,7 +101,11 @@ def log_trip(ctx, trip: dict, code: str) -> None:
         if plans:
             p = plans[0]
             item, qty = p["item"], p["qty"]
-            shelf = travel.shelf_at(t.get("stock", {}).get(f"{code}:{p['id']}"), arrival)
+            tr = t.get("stock", {}).get(f"{code}:{p['id']}") or {}
+            shelf = travel.shelf_at(tr, arrival)
+            za = tr.get("zero_at") or 0
+            if shelf and 0 <= za - arrival <= 120:
+                shelf = "just_missed"           # sold out within 2 min of landing
             eta = p.get("restock") if shelf is False else None
     except Exception as e:  # noqa: BLE001
         ctx.log(f"trip log: {e}")
@@ -110,7 +114,8 @@ def log_trip(ctx, trip: dict, code: str) -> None:
            "flight_s": int(trip.get("flight") or 0),
            "hint": "yes" if followed else "no",
            "hint_kind": hint.get("kind", "") if followed else "",
-           "shelf_at_landing": {True: "in_stock", False: "empty"}.get(shelf, "unknown"),
+           "shelf_at_landing": {True: "in_stock", False: "empty",
+                                "just_missed": "just_missed"}.get(shelf, "unknown"),
            "qty_after": qty, "restock_eta_utc": logbook.iso(eta)}
     logbook.append(logbook.TRIPS, row, ctx.cfg.log_dir)
     t["trips"] = (t.get("trips", []) + [{"land": arrival, "code": code, "hint": followed,

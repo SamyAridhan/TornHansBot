@@ -179,6 +179,7 @@ def flight_estimate(flights: dict, code: str) -> Optional[dict]:
 # --------------------------------------------------------------------------
 DEFAULT_DELAY = 15 * 60          # empty -> restock, until we've measured it
 MAX_DELAY = 45 * 60
+MIN_DELAY = 5 * 60               # a "restock" seconds after a sell-out is feed noise
 
 
 def observe_stock(track: dict, code: str, item: dict, now: float) -> Optional[dict]:
@@ -199,7 +200,7 @@ def observe_stock(track: dict, code: str, item: dict, now: float) -> Optional[di
             delay = None
             if t.get("zero_at"):
                 delay = now - min(dt, 60) / 2 - t["zero_at"]
-                if 0 < delay <= MAX_DELAY:
+                if MIN_DELAY <= delay <= MAX_DELAY:     # ignore feed blips
                     t["delays"] = (t.get("delays", []) + [int(delay)])[-10:]
             t["zero_at"] = None
             back = now - min(dt, 60) / 2
@@ -208,7 +209,7 @@ def observe_stock(track: dict, code: str, item: dict, now: float) -> Optional[di
             t["restocked_at"] = back
             t["restock_qty"] = qty
             ev = {"event": "restocked", "at": int(back), "qty": qty,
-                  "delay": int(delay) if delay and 0 < delay <= MAX_DELAY else ""}
+                  "delay": int(delay) if delay and MIN_DELAY <= delay <= MAX_DELAY else ""}
         elif 0 < qty < prev and dt > 0:
             rate = (prev - qty) / dt                        # items per second
             t["rate"] = rate if not t.get("rate") else 0.7 * t["rate"] + 0.3 * rate
