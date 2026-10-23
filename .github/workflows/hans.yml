@@ -105,7 +105,8 @@ jobs:
             for f in "$RUNNER_TEMP"/newlogs/*.csv; do
               t="logs/$(basename "$f")"
               if [ ! -s "$t" ]; then cp "$f" "$t"
-              else tail -n +2 "$f" | grep -vxF -f "$t" >> "$t" || true; fi
+              # same first 3 columns = same event (keeps hand-corrected rows as they are)
+              else awk -F, 'NR==FNR{seen[$1 FS $2 FS $3]=1; next} FNR>1 && !seen[$1 FS $2 FS $3]' "$t" "$f" > "$RUNNER_TEMP/add.csv"; cat "$RUNNER_TEMP/add.csv" >> "$t"; fi
             done
             git add logs/*.csv
             git diff --cached --quiet && { echo "No new log rows."; exit 0; }
