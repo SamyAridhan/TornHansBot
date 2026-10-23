@@ -1,0 +1,2 @@
+departed_utc,landed_utc,country,item,method,flight_s,hint,hint_kind,shelf_at_landing,qty_after,restock_eta_utc
+2026-10-22T22:53:09+00:00,2026-10-23T02:46:09+00:00,chi,Panda Plushie,Standard,13980,no,,in_stock,45,
