@@ -509,3 +509,4 @@ at_utc,country,item,event,qty,empty_to_restock_s
 2026-10-23T03:36:40+00:00,arg,Monkey Plushie,restocked,2500,791
 2026-10-23T03:43:45+00:00,uni,Red Fox Plushie,restocked,2359,973
 2026-10-23T03:47:49+00:00,chi,Panda Plushie,restocked,2384,973
+2026-10-23T03:56:15+00:00,sou,Lion Plushie,sold_out,0,
