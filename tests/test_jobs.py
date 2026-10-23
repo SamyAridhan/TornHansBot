@@ -128,7 +128,7 @@ class LogbookTests(unittest.TestCase):
                                     "cost": 1, "restock": None}]}}
         torn = FakeTorn(flying("China", 600))
         ctx = make_ctx(torn=torn, clock=clock, feeds=FakeFeeds(stock=stock))
-        ctx.store["travel"]["hints"] = {"chi": {"at": T0 - 13000, "kind": "best_odds"}}
+        ctx.store["travel"]["suggested"] = {"chi": {str(T0 - 1): "best_odds"}}
         depart.run(ctx)
         bars_job.run(ctx)                               # take-off seen
         clock.advance(60)
@@ -144,6 +144,8 @@ class LogbookTests(unittest.TestCase):
         self.assertEqual(trips[0]["country"], "chi")
         self.assertEqual(trips[0]["shelf_at_landing"], "empty")
         self.assertEqual(ctx.store["travel"]["trips"][-1]["shelf"], "empty")
+        self.assertEqual(trips[0]["hint"], "yes")             # left on Hans's suggested time
+        self.assertEqual(trips[0]["hint_kind"], "best_odds")
 
     def test_shelf_at(self):
         t = {"qty": 100, "restocked_at": 500, "zero_at": None}

@@ -92,8 +92,11 @@ def log_trip(ctx, trip: dict, code: str) -> None:
     t = ctx.store["travel"]
     arrival = trip.get("arrival") or 0
     departed = arrival - int(trip.get("flight") or 0)
-    hint = (t.get("hints") or {}).get(code) or {}
-    followed = bool(hint) and -120 <= departed - hint.get("at", 0) <= 900
+    # followed = left within 3 min of a leave time Hans showed (Home, Travel or ping)
+    sug = (t.get("suggested") or {}).get(code) or {}
+    near = [(abs(departed - int(k)), v) for k, v in sug.items() if abs(departed - int(k)) <= 180]
+    hint = {"kind": min(near)[1]} if near else {}
+    followed = bool(near)
     route = (ctx.settings["depart"]["routes"].get(code) or {})
     item, shelf, qty, eta = route.get("item", ""), None, "", None
     try:

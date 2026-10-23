@@ -85,7 +85,19 @@ class Ctx:
                             t.setdefault("stock", {}), now, C.LAND_AFTER_RESTOCK)
             if p:
                 out.append(p)
+                self._remember_suggestion(p)
         return out, True
+
+    def _remember_suggestion(self, p: dict) -> None:
+        """Remember every leave time Hans shows (Home, Travel, pings) so the
+        trip log can tell whether a trip followed Hans's suggestion."""
+        dep = p.get("depart") or p.get("best_depart")
+        if not dep:
+            return
+        sug = self.store["travel"].setdefault("suggested", {}).setdefault(p["code"], {})
+        sug[str(int(dep))] = "exact" if p.get("depart") else "best_odds"
+        for k in sorted(sug, key=int)[:-20]:
+            del sug[k]
 
     def home_extras(self) -> list:
         """Extra Home lines: next 'leave now' and the OC time."""
