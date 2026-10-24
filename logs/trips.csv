@@ -1,3 +1,4 @@
 departed_utc,landed_utc,country,item,method,flight_s,hint,hint_kind,shelf_at_landing,qty_after,restock_eta_utc
 2026-10-22T22:53:09+00:00,2026-10-23T02:46:09+00:00,chi,Panda Plushie,Standard,13980,yes,best_odds,just_missed,45,2026-10-23T03:03:10+00:00
 2026-10-23T06:56:27+00:00,2026-10-23T10:43:27+00:00,chi,Panda Plushie,Standard,13620,yes,best_odds,in_stock,1560,
+2026-10-24T04:51:13+00:00,2026-10-24T08:33:13+00:00,chi,Panda Plushie,Standard,13320,yes,best_odds,empty,0,2026-10-24T08:45:21+00:00
