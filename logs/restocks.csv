@@ -2350,3 +2350,34 @@ at_utc,country,item,event,qty,empty_to_restock_s
 2026-10-27T09:56:08+00:00,sou,Lion Plushie,sold_out,0,
 2026-10-27T10:06:17+00:00,arg,Monkey Plushie,sold_out,0,
 2026-10-27T10:06:17+00:00,swi,Chamois Plushie,sold_out,0,
+2026-10-27T10:10:09+00:00,sou,Lion Plushie,restocked,2500,840
+2026-10-27T10:10:58+00:00,can,Wolverine Plushie,sold_out,0,
+2026-10-27T10:21:07+00:00,arg,Monkey Plushie,restocked,2483,890
+2026-10-27T10:21:07+00:00,swi,Chamois Plushie,restocked,2482,890
+2026-10-27T10:22:09+00:00,chi,Panda Plushie,sold_out,0,
+2026-10-27T10:25:11+00:00,uni,Red Fox Plushie,sold_out,0,
+2026-10-27T10:28:14+00:00,can,Wolverine Plushie,restocked,2419,1035
+2026-10-27T10:34:19+00:00,cay,Stingray Plushie,sold_out,0,
+2026-10-27T10:34:19+00:00,uae,Camel Plushie,sold_out,0,
+2026-10-27T10:37:23+00:00,chi,Panda Plushie,restocked,2359,914
+2026-10-27T10:42:28+00:00,uni,Red Fox Plushie,restocked,2500,1036
+2026-10-27T10:43:28+00:00,haw,Orchid,sold_out,0,
+2026-10-27T10:48:32+00:00,cay,Stingray Plushie,restocked,2500,852
+2026-10-27T10:48:32+00:00,uae,Camel Plushie,restocked,2473,852
+2026-10-27T11:01:43+00:00,mex,Jaguar Plushie,sold_out,0,
+2026-10-27T11:04:45+00:00,swi,Chamois Plushie,sold_out,0,
+2026-10-27T11:07:47+00:00,uni,Red Fox Plushie,sold_out,0,
+2026-10-27T11:08:48+00:00,uni,Red Fox Plushie,restocked,1581,
+2026-10-27T11:19:57+00:00,mex,Jaguar Plushie,restocked,2418,1094
+2026-10-27T11:19:57+00:00,swi,Chamois Plushie,restocked,2457,912
+2026-10-27T11:20:58+00:00,arg,Monkey Plushie,sold_out,0,
+2026-10-27T11:23:00+00:00,sou,Lion Plushie,sold_out,0,
+2026-10-27T11:28:05+00:00,can,Wolverine Plushie,sold_out,0,
+2026-10-27T11:29:06+00:00,uni,Red Fox Plushie,sold_out,0,
+2026-10-27T11:35:10+00:00,chi,Panda Plushie,sold_out,0,
+2026-10-27T11:36:11+00:00,arg,Monkey Plushie,restocked,2444,912
+2026-10-27T11:38:12+00:00,sou,Lion Plushie,restocked,2500,912
+2026-10-27T11:43:07+00:00,can,Wolverine Plushie,restocked,2500,901
+2026-10-27T11:44:01+00:00,uni,Red Fox Plushie,restocked,2433,895
+2026-10-27T11:45:03+00:00,haw,Orchid,restocked,9990,
+2026-10-27T11:47:04+00:00,cay,Stingray Plushie,sold_out,0,
