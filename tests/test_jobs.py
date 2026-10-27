@@ -380,3 +380,39 @@ class PinTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class InvestReminderTest(unittest.TestCase):
+    def _ctx(self, money, hour_utc=4):
+        from hans.jobs import invest
+
+        class MoneyTorn(FakeTorn):
+            def user(self, selections="x"):
+                if selections == "money":
+                    if isinstance(money, Exception):
+                        raise money
+                    return money
+                return super().user(selections)
+        ctx = make_ctx(torn=MoneyTorn(), clock=Clock(1761537600 + hour_utc * 3600))
+        return ctx, invest
+
+    def test_below_threshold_no_message(self):
+        ctx, invest = self._ctx({"money_onhand": 400_000, "city_bank": {"amount": 1_000_000}})
+        self.assertEqual(invest.run(ctx), invest.CHECK_EVERY)
+        self.assertEqual(ctx.tg.sent, [])
+        self.assertEqual(ctx.store["invest"]["last_total"], 1_400_000)
+
+    def test_reminds_once_when_rich(self):
+        ctx, invest = self._ctx({"money_onhand": 5_000_000, "city_bank": {"amount": 60_000_000},
+                                 "vault_amount": 10_000_000, "cayman_bank": 1})
+        invest.run(ctx)
+        self.assertEqual(len(ctx.tg.sent), 1)
+        self.assertIn("75,000,001", ctx.tg.sent[0][1])
+        invest.run(ctx)
+        self.assertEqual(len(ctx.tg.sent), 1)
+
+    def test_api_error_is_quiet(self):
+        from hans.net.torn import TornApiError
+        ctx, invest = self._ctx(TornApiError(16, "Access level too low"))
+        self.assertEqual(invest.run(ctx), invest.RETRY_ON_ERROR)
+        self.assertEqual(ctx.tg.sent, [])

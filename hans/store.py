@@ -24,7 +24,7 @@ from typing import Optional
 from . import settings as settings_mod
 
 SCHEMA_VERSION = 1
-SECTIONS = ("settings", "tg", "bars", "schedule", "landing", "travel", "oc")
+SECTIONS = ("settings", "tg", "bars", "schedule", "landing", "travel", "oc", "invest")
 
 # legacy file -> what it held (for migration)
 LEGACY_FILES = ("state.json", "schedule_state.json", "commands_state.json",
