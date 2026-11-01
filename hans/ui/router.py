@@ -283,6 +283,9 @@ def _price(ctx, arg: str) -> None:
 # Entry: one Telegram update
 # --------------------------------------------------------------------------
 def handle_update(ctx, u: dict) -> None:
+    chat = ((u.get("callback_query") or {}).get("message") or u.get("message") or {}).get("chat") or {}
+    if str(chat.get("id")) == ctx.tg.chat_id:
+        ctx.store["tg"]["last_seen"] = int(ctx.now())
     if "callback_query" in u:
         cq = u["callback_query"]
         msg = cq.get("message") or {}

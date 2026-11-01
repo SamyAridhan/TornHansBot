@@ -416,3 +416,35 @@ class InvestReminderTest(unittest.TestCase):
         ctx, invest = self._ctx(TornApiError(16, "Access level too low"))
         self.assertEqual(invest.run(ctx), invest.RETRY_ON_ERROR)
         self.assertEqual(ctx.tg.sent, [])
+
+
+class DepartQuietButAwakeTest(unittest.TestCase):
+    """Bug 2026-11-02: 06:00/07:42 best-odds pings were swallowed by quiet
+    hours (01–08) while the user was awake and waiting for them."""
+
+    def _ctx(self):
+        t = DepartTests()
+        ctx = t.make(T0 + 11 * 3600)                   # 03:00 local, quiet hours
+        ctx.settings["depart"]["routes"]["mex"]["enabled"] = False
+        ctx.settings["depart"]["routes"]["chi"]["enabled"] = True
+        ctx.store["travel"]["stock"]["chi:274"].update(
+            restocked_at=T0 + 11 * 3600 - int(0.72 * 2400), gaps=[2400])
+        return ctx
+
+    def test_pings_in_quiet_hours_if_you_used_hans_recently(self):
+        ctx = self._ctx()
+        ctx.store["tg"]["last_seen"] = int(ctx.now()) - 600
+        depart.run(ctx)
+        self.assertIn("Best time to leave for China", ctx.tg.texts()[-1])
+
+    def test_pings_in_quiet_hours_if_online_in_torn(self):
+        ctx = self._ctx()
+        ctx.snapshot = {"last_action": int(ctx.now()) - 120, "travel": {}}
+        depart.run(ctx)
+        self.assertEqual(len(ctx.tg.sent), 1)
+
+    def test_still_silent_when_asleep(self):
+        ctx = self._ctx()
+        ctx.store["tg"]["last_seen"] = int(ctx.now()) - 5 * 3600
+        depart.run(ctx)
+        self.assertEqual(ctx.tg.sent, [])

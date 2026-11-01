@@ -99,6 +99,13 @@ class Ctx:
         for k in sorted(sug, key=int)[:-20]:
             del sug[k]
 
+    def user_active(self, window: int = 90 * 60) -> bool:
+        """True if you used Torn or Hans recently — i.e. you're awake, so quiet
+        hours shouldn't swallow a leave-now ping you're waiting for."""
+        seen = max(int((self.snapshot or {}).get("last_action") or 0),
+                   int(self.store["tg"].get("last_seen") or 0))
+        return seen > 0 and self.now() - seen < window
+
     def home_extras(self) -> list:
         """Extra Home lines: next 'leave now' and the OC time."""
         now, lines = self.now(), []

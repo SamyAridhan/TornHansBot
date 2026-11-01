@@ -57,8 +57,8 @@ def run(ctx) -> float:
         if not dep:
             continue
         if dep <= now + 5:
-            if not p.get("depart") and quiet:
-                continue                 # best-odds hints are optional; respect quiet hours
+            if not p.get("depart") and quiet and not ctx.user_active():
+                continue                 # asleep: best-odds hints are optional, stay quiet
             if now - float(fired.get(p["code"]) or 0) > REPEAT_GAP:
                 fired[p["code"]] = now
                 ctx.store["travel"].setdefault("hints", {})[p["code"]] = {
