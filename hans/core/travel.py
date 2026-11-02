@@ -283,6 +283,9 @@ BEST_PHASE = 0.72
 DEFAULT_GAP = 40 * 60
 
 
+BEST_ODDS_HINTS = False
+
+
 def best_window(t: dict, now: float) -> Optional[int]:
     """Next 'best odds' departure for a route too long to time exactly."""
     ra = (t or {}).get("restocked_at")
@@ -324,7 +327,9 @@ def plan(code: str, item_needle: str, stock: dict, model: dict, flights: dict,
                 dep, too_long = None, False
     elif fl and pr["cycle"] and fl["sec"] > pr["cycle"]:
         too_long = True
-    best = best_window(t, now) if too_long else None
+    # Long flights (China etc.): an 11-day backtest showed every leave time lands
+    # in stock ~58-65%, so suggesting a "best" time just made you wait. Off.
+    best = best_window(t, now) if (too_long and BEST_ODDS_HINTS) else None
     return {"code": code, "name": country_name(code), "item": it.get("name") or "",
             "id": it.get("id"), "qty": it.get("qty", 0), "cost": it.get("cost", 0),
             "restock": pr["restock"], "empties": pr["empties"], "basis": pr["basis"],

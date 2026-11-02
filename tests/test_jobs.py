@@ -238,15 +238,14 @@ class DepartTests(unittest.TestCase):
         depart.run(ctx)
         self.assertEqual(len(ctx.tg.sent), 1)          # no repeat
 
-    def test_long_flight_gets_best_odds_hint_not_exact_time(self):
+    def test_long_flight_gets_no_best_odds_ping(self):
         ctx = self.make(T0 + 60)
         ctx.settings["depart"]["routes"]["mex"]["enabled"] = False
         ctx.settings["depart"]["routes"]["chi"]["enabled"] = True
         ctx.store["travel"]["stock"]["chi:274"].update(restocked_at=T0, gaps=[2400])
         ctx.clock.t = T0 + int(0.72 * 2400)          # 16:28 local, not quiet hours
         depart.run(ctx)
-        self.assertIn("Best time to leave for China", ctx.tg.texts()[-1])
-        self.assertIn("60–65%", ctx.tg.texts()[-1])
+        self.assertEqual(ctx.tg.sent, [])      # 2026-11-02: hints switched off
 
     def test_best_odds_hint_respects_quiet_hours(self):
         ctx = self.make(T0 + 11 * 3600)                # 03:00 local
@@ -418,6 +417,7 @@ class InvestReminderTest(unittest.TestCase):
         self.assertEqual(ctx.tg.sent, [])
 
 
+@unittest.skipUnless(travel.BEST_ODDS_HINTS, "best-odds hints are off")
 class DepartQuietButAwakeTest(unittest.TestCase):
     """Bug 2026-11-02: 06:00/07:42 best-odds pings were swallowed by quiet
     hours (01–08) while the user was awake and waiting for them."""

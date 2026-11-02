@@ -138,7 +138,7 @@ def _depart_bits(p: dict, now: float, tz: int) -> str:
         if p.get("best_depart"):
             return (f"best odds: leave ~<b>{clock(p['best_depart'], tz)}</b> "
                     f"(in {dur(max(0, int(p['best_depart'] - now)))}, ~60–65%)")
-        return "<i>can't be timed exactly — waiting to see a restock</i>"
+        return "<i>long flight — timing doesn't help, leave when ready</i>"
     return "<i>waiting for it to sell out to time it</i>"
 
 
