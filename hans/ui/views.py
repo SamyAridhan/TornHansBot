@@ -137,7 +137,7 @@ def _depart_bits(p: dict, now: float, tz: int) -> str:
     if p.get("too_long"):
         if p.get("best_depart"):
             return (f"best odds: leave ~<b>{clock(p['best_depart'], tz)}</b> "
-                    f"(in {dur(max(0, int(p['best_depart'] - now)))}, ~70%)")
+                    f"(in {dur(max(0, int(p['best_depart'] - now)))}, ~60–65%)")
         return "<i>can't be timed exactly — waiting to see a restock</i>"
     return "<i>waiting for it to sell out to time it</i>"
 
@@ -228,8 +228,8 @@ def route_detail(p: Optional[dict], code: str, enabled: bool, now: float, tz: in
                        f"(in {dur(max(0, int(p['best_depart'] - now)))}) — about 30 min after a "
                        f"restock, when it's nearly sold out.")
         out.append(f"<i>Your flight is longer than a restock cycle (~{dur(p.get('cycle'))}), so "
-                   f"no time is a sure thing. Backtest: ~70% land in stock this way vs ~64% "
-                   f"at random. I'll show the live shelf 1 min before you land.</i>")
+                   f"no time is a sure thing: ~60–65% land in stock whenever you leave. If it's "
+                   f"empty, it restocks in ~15 min — I'll ping you when it's back.</i>")
     elif p.get("restock") or p.get("flight"):
         out.append("🛫 " + _depart_bits(p, now, tz))
     out.append("")

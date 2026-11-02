@@ -37,8 +37,35 @@ def track_stock(ctx) -> None:
                     "empty_to_restock_s": ev["delay"]}, ctx.cfg.log_dir)
 
 
+def watch_abroad(ctx) -> None:
+    """You landed abroad to an empty shelf (and maybe parked in hospital to
+    stay safe): ping the moment your item is back in stock."""
+    tv = (ctx.snapshot or {}).get("travel") or {}
+    code = travel.code_for(tv.get("destination", ""))
+    st = ctx.store["travel"]
+    if not code or tv.get("time_left", 0) > 0:
+        st.pop("abroad_watch", None)               # home, or still in the air
+        return
+    w = st.get("abroad_watch")
+    if not w or w.get("code") != code:
+        w = st["abroad_watch"] = {"code": code, "empty": False, "pinged": False}
+    route = ctx.settings["depart"]["routes"].get(code) or {}
+    it = travel.find_item(ctx.feeds.stock() or {}, code,
+                          route.get("item") or S.DEFAULT_ROUTE_ITEMS.get(code, ""))
+    if not it:
+        return
+    if it.get("qty", 0) <= 0:
+        w["empty"] = True
+    elif w["empty"] and not w["pinged"]:
+        w["pinged"] = True
+        ctx.send(f"🟢 <b>{html_escape(it['name'])} back in stock in "
+                 f"{travel.country_name(code)}!</b> {it['qty']:,} on the shelf — buy now "
+                 f"and fly home.")
+
+
 def run(ctx) -> float:
     track_stock(ctx)
+    watch_abroad(ctx)
     if not ctx.settings["depart"]["on"]:
         return C.STOCK_POLL
     snap = ctx.snapshot or {}
@@ -75,8 +102,9 @@ def depart_text(p: dict, tz: int) -> str:
     if not p.get("depart"):
         return (f"🛫 <b>Best time to leave for {p['name']}: now</b>\n"
                 f"{html_escape(p['item'])} restocked ~30 min ago and is nearly sold out — "
-                f"leaving now gave the best odds in testing (~70% land in stock, not a sure "
-                f"thing). I'll show the live shelf 1 min before you land.")
+                f"a good time to go (~60–65% land in stock — a 4h flight can't be timed "
+                f"exactly). If it's empty when you land, it restocks in ~15 min: park in "
+                f"hospital and I'll ping you the moment it's back.")
     land = p["depart"] + (p.get("flight") or 0)
     if p["basis"] == "empty":
         why = f"it sold out at {clock(p['empties'], tz)}"

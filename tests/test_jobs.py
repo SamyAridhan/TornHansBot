@@ -246,7 +246,7 @@ class DepartTests(unittest.TestCase):
         ctx.clock.t = T0 + int(0.72 * 2400)          # 16:28 local, not quiet hours
         depart.run(ctx)
         self.assertIn("Best time to leave for China", ctx.tg.texts()[-1])
-        self.assertIn("~70%", ctx.tg.texts()[-1])
+        self.assertIn("60–65%", ctx.tg.texts()[-1])
 
     def test_best_odds_hint_respects_quiet_hours(self):
         ctx = self.make(T0 + 11 * 3600)                # 03:00 local
@@ -448,3 +448,31 @@ class DepartQuietButAwakeTest(unittest.TestCase):
         ctx.store["tg"]["last_seen"] = int(ctx.now()) - 5 * 3600
         depart.run(ctx)
         self.assertEqual(ctx.tg.sent, [])
+
+
+class AbroadRestockPingTest(unittest.TestCase):
+    def _ctx(self, qty):
+        feeds = FakeFeeds(stock={"chi": {"update": 0, "items": [
+            {"id": 274, "name": "Panda Plushie", "qty": qty, "cost": 400, "restock": None}]}})
+        ctx = make_ctx(feeds=feeds)
+        ctx.snapshot = {"travel": {"time_left": 0, "destination": "China"}}
+        return ctx, feeds
+
+    def test_pings_once_when_empty_shelf_restocks(self):
+        ctx, feeds = self._ctx(0)
+        depart.watch_abroad(ctx)
+        self.assertEqual(ctx.tg.sent, [])
+        feeds._stock = {"chi": {"update": 0, "items": [
+            {"id": 274, "name": "Panda Plushie", "qty": 2400, "cost": 400, "restock": None}]}}
+        depart.watch_abroad(ctx)
+        depart.watch_abroad(ctx)
+        self.assertEqual(len(ctx.tg.sent), 1)
+        self.assertIn("back in stock in China", ctx.tg.sent[0][1])
+
+    def test_no_ping_if_it_was_never_empty_or_youre_home(self):
+        ctx, _ = self._ctx(2400)
+        depart.watch_abroad(ctx)
+        self.assertEqual(ctx.tg.sent, [])
+        ctx.snapshot = {"travel": {"time_left": 0, "destination": "Torn"}}
+        depart.watch_abroad(ctx)
+        self.assertNotIn("abroad_watch", ctx.store["travel"])
