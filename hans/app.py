@@ -53,6 +53,20 @@ def tick(ctx: Ctx) -> float:
     return min(e[1] for e in ctx.jobs.values()) - ctx.now()
 
 
+STALE_AFTER = 15 * 60   # taps older than this were sent while Hans was offline
+
+
+def is_stale(ctx: Ctx, u: dict) -> bool:
+    """A typed command that waited out a restart gap. Answering it hours later
+    (e.g. a 2am burst of replies) is worse than dropping it. Button taps carry
+    no timestamp and just edit a screen in place, so they're always handled."""
+    sent = (u.get("message") or {}).get("date")
+    if sent and ctx.now() - sent > STALE_AFTER:
+        ctx.log(f"skipping stale command ({int(ctx.now() - sent)}s old)")
+        return True
+    return False
+
+
 def run(ctx: Ctx, seconds: int, sleep=time.sleep) -> None:
     ctx.jobs = {name: [fn, 0.0] for name, fn in jobs.ALL}
     startup(ctx)
@@ -73,6 +87,8 @@ def run(ctx: Ctx, seconds: int, sleep=time.sleep) -> None:
         for u in updates:
             tg["offset"] = u["update_id"] + 1
             try:
+                if is_stale(ctx, u):
+                    continue
                 handle_update(ctx, u)
             except Exception as e:  # noqa: BLE001
                 ctx.log(f"update error: {type(e).__name__}: {e}")

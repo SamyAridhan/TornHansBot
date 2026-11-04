@@ -283,3 +283,14 @@ class LoopSimulation(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class StaleUpdateTest(unittest.TestCase):
+    def test_old_typed_command_is_dropped_new_one_kept(self):
+        from hans import app
+        from .fakes import make_ctx
+        ctx = make_ctx()
+        now = int(ctx.now())
+        self.assertTrue(app.is_stale(ctx, {"message": {"date": now - 3 * 3600}}))
+        self.assertFalse(app.is_stale(ctx, {"message": {"date": now - 30}}))
+        self.assertFalse(app.is_stale(ctx, {"callback_query": {"data": "nav:home"}}))
