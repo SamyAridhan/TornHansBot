@@ -8,17 +8,16 @@ from datetime import datetime, timezone
 from .. import settings as S
 from ..core import bars
 
-THRESHOLD = 75_000_000          # spare-cash level where a first block makes sense
+THRESHOLD = 100_000_000         # WSU block is ~$95M: the usual first buy
 CHECK_EVERY = 6 * 3600
 RETRY_ON_ERROR = 24 * 3600
 
 MESSAGE = (
     "📈 <b>Time to look at stocks</b>\n"
     "You've got about <b>${total:,}</b> in cash. Keep what you need for "
-    "travel + Xanax, then start with one benefit block:\n"
-    "1. <b>EVL</b> (Evil Ducks) — 100k shares → 1,000 happy / week\n"
-    "2. <b>WSU</b> — 1M shares → −10% course time\n"
-    "3. <b>MCS</b> (Mc Smoogle) — 350k shares → 100 energy / week\n"
+    "travel + Xanax, then start with:\n"
+    "1. <b>WSU</b> — 1M shares (~$95M) → −10% course time (community's #1 first block)\n"
+    "2. Later: bank interest merits + a $2B bank investment, then <b>SYM</b> (drug pack / week)\n"
     "Buy on a dip, straight from the bank (don't carry the cash)."
 )
 

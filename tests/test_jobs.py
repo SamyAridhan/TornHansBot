@@ -402,11 +402,11 @@ class InvestReminderTest(unittest.TestCase):
         self.assertEqual(ctx.store["invest"]["last_total"], 1_400_000)
 
     def test_reminds_once_when_rich(self):
-        ctx, invest = self._ctx({"money_onhand": 5_000_000, "city_bank": {"amount": 60_000_000},
+        ctx, invest = self._ctx({"money_onhand": 30_000_000, "city_bank": {"amount": 60_000_000},
                                  "vault_amount": 10_000_000, "cayman_bank": 1})
         invest.run(ctx)
         self.assertEqual(len(ctx.tg.sent), 1)
-        self.assertIn("75,000,001", ctx.tg.sent[0][1])
+        self.assertIn("100,000,001", ctx.tg.sent[0][1])
         invest.run(ctx)
         self.assertEqual(len(ctx.tg.sent), 1)
 
