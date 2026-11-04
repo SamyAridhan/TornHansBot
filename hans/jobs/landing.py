@@ -61,6 +61,9 @@ def run(ctx) -> float:
         land.clear()
         return 300
     land["alerted"] = True
+    if ctx.asleep():                  # overnight trip: don't buzz you awake at 3am
+        ctx.log("landing buzz skipped (quiet hours, you're asleep)")
+        return home_wait
     start(ctx, land.get("dest", ""), arrival, arrival + C.BUZZ_AFTER_LANDING)
     return 0
 

@@ -56,7 +56,7 @@ def watch_abroad(ctx) -> None:
         return
     if it.get("qty", 0) <= 0:
         w["empty"] = True
-    elif w["empty"] and not w["pinged"]:
+    elif w["empty"] and not w["pinged"] and not ctx.asleep():
         w["pinged"] = True
         ctx.send(f"🟢 <b>{html_escape(it['name'])} back in stock in "
                  f"{travel.country_name(code)}!</b> {it['qty']:,} on the shelf — buy now "

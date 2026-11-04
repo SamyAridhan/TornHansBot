@@ -106,6 +106,15 @@ class Ctx:
                    int(self.store["tg"].get("last_seen") or 0))
         return seen > 0 and self.now() - seen < window
 
+    def asleep(self) -> bool:
+        """Quiet hours and you haven't touched Torn/Hans lately: hold pings."""
+        from datetime import datetime, timezone
+        from . import settings as S
+        from .core import bars
+        quiet = bars.in_quiet_hours(datetime.fromtimestamp(self.now(), timezone.utc),
+                                    S.alert_config(self.settings), self.tz)
+        return quiet and not self.user_active()
+
     def home_extras(self) -> list:
         """Extra Home lines: next 'leave now' and the OC time."""
         now, lines = self.now(), []

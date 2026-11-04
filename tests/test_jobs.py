@@ -476,3 +476,15 @@ class AbroadRestockPingTest(unittest.TestCase):
         ctx.snapshot = {"travel": {"time_left": 0, "destination": "Torn"}}
         depart.watch_abroad(ctx)
         self.assertNotIn("abroad_watch", ctx.store["travel"])
+
+
+class AsleepTest(unittest.TestCase):
+    def test_no_landing_buzz_or_restock_ping_while_asleep(self):
+        ctx = make_ctx(clock=Clock(1761537600 - 8 * 3600 + 3 * 3600))   # 03:00 local
+        ctx.store["tg"]["last_seen"] = int(ctx.now()) - 6 * 3600
+        self.assertTrue(ctx.asleep())
+        ctx.store["landing"].update(arrival=ctx.now() + 30, dest="China")
+        landing.run(ctx)
+        self.assertIsNone(ctx.buzz)
+        ctx.store["tg"]["last_seen"] = int(ctx.now())            # you tapped Hans
+        self.assertFalse(ctx.asleep())
