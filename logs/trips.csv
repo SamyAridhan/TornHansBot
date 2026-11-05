@@ -12,3 +12,4 @@ departed_utc,landed_utc,country,item,method,flight_s,hint,hint_kind,shelf_at_lan
 2026-11-03T07:59:58+00:00,2026-11-03T11:46:57+00:00,chi,Panda Plushie,Standard,13619,no,,just_missed,0,
 2026-11-03T22:41:50+00:00,2026-11-04T02:32:50+00:00,chi,Panda Plushie,Standard,13860,no,,in_stock,1453,
 2026-11-04T06:52:23+00:00,2026-11-04T10:43:23+00:00,chi,Panda Plushie,Standard,13860,no,,empty,0,2026-11-04T10:45:03+00:00
+2026-11-04T22:58:13+00:00,2026-11-05T02:42:13+00:00,chi,Panda Plushie,Standard,13440,no,,in_stock,1701,
