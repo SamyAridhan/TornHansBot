@@ -41,3 +41,4 @@ departed_utc,landed_utc,country,item,method,flight_s,hint,hint_kind,shelf_at_lan
 2026-11-15T06:54:15+00:00,2026-11-15T09:34:15+00:00,chi,Panda Plushie,Airstrip,9600,no,,empty,0,2026-11-15T09:46:45+00:00
 2026-11-15T22:40:29+00:00,2026-11-16T01:20:29+00:00,chi,Panda Plushie,Airstrip,9600,no,,in_stock,1185,
 2026-11-16T05:04:26+00:00,2026-11-16T07:39:26+00:00,chi,Panda Plushie,Airstrip,9300,no,,in_stock,273,
+2026-11-16T10:21:07+00:00,2026-11-16T13:04:07+00:00,chi,Panda Plushie,Airstrip,9780,no,,in_stock,545,
