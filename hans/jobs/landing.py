@@ -25,7 +25,11 @@ def stop(ctx, reason: str) -> None:
         ctx.tg.call("deleteMessages", {"chat_id": ctx.tg.chat_id,
                                        "message_ids": mids[i:i + 100]})
     if not b.get("demo"):
-        ctx.store["landing"].clear()
+        # Keep the trip but mark it handled. Clearing it made the next poll
+        # (still in the air for ~1 min) re-arm the landing and buzz again.
+        land = ctx.store["landing"]
+        if land.get("arrival"):
+            land["alerted"] = True
     note = {"ack": "✅ Buzz off. Buy and fly out!",
             "timeout": "🔕 Buzz stopped. You've landed — buy and fly out!",
             }.get(reason, "🔕 Buzz stopped.")

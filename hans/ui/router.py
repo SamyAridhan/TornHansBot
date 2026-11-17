@@ -298,4 +298,6 @@ def handle_update(ctx, u: dict) -> None:
         m = u["message"]
         if str((m.get("chat") or {}).get("id")) != ctx.tg.chat_id:
             return
+        if "text" not in m:
+            return      # service notices (e.g. "Hans pinned a message"), not you
         on_command(ctx, *parse_command(m.get("text") or ""))

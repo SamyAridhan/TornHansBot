@@ -199,7 +199,7 @@ class LandingTests(unittest.TestCase):
         deletes = [p for m, p in self.ctx.tg.calls if m == "deleteMessages"]
         self.assertEqual(len(deletes[0]["message_ids"]), 1)
         self.assertIn("Buzz stopped", self.ctx.tg.sent[-1][1])
-        self.assertEqual(self.ctx.store["landing"], {})
+        self.assertTrue(self.ctx.store["landing"].get("alerted"))   # kept, marked done (no re-buzz)
 
     def test_missed_landing_is_dropped(self):
         self.clock.t = T0 + 700
@@ -488,3 +488,29 @@ class AsleepTest(unittest.TestCase):
         self.assertIsNone(ctx.buzz)
         ctx.store["tg"]["last_seen"] = int(ctx.now())            # you tapped Hans
         self.assertFalse(ctx.asleep())
+
+
+class BuzzOffStaysOffTest(unittest.TestCase):
+    def test_ack_then_next_poll_does_not_rebuzz(self):
+        from hans.jobs import bars as bars_job
+        ctx = make_ctx()
+        now = ctx.now()
+        snap = {"travel": {"time_left": 50, "destination": "China"}}
+        bars_job.track_travel(ctx, snap, now)
+        ctx.clock.t = ctx.store["landing"]["arrival"] - 55
+        landing.run(ctx)                      # buzz starts
+        self.assertIsNotNone(ctx.buzz)
+        landing.stop(ctx, "ack")              # you tap Buzz off
+        snap2 = {"travel": {"time_left": 40, "destination": "China"}}
+        bars_job.track_travel(ctx, snap2, ctx.now())   # still flying
+        landing.run(ctx)
+        self.assertIsNone(ctx.buzz)
+
+
+class PinNoticeIgnoredTest(unittest.TestCase):
+    def test_pinned_service_message_gets_no_reply(self):
+        from hans.ui import router
+        ctx = make_ctx()
+        router.handle_update(ctx, {"update_id": 1, "message": {
+            "chat": {"id": ctx.tg.chat_id}, "pinned_message": {"message_id": 5}}})
+        self.assertEqual(ctx.tg.sent, [])
