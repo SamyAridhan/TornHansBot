@@ -14529,3 +14529,104 @@ at_utc,country,item,event,qty,empty_to_restock_s
 2026-11-21T00:25:08+00:00,arg,Monkey Plushie,restocked,2500,852
 2026-11-21T00:25:08+00:00,uae,Camel Plushie,restocked,2462,1035
 2026-11-21T00:36:19+00:00,sou,Lion Plushie,restocked,2415,914
+2026-11-21T00:37:13+00:00,can,Wolverine Plushie,sold_out,0,
+2026-11-21T00:39:09+00:00,chi,Panda Plushie,sold_out,0,
+2026-11-21T00:40:10+00:00,mex,Jaguar Plushie,sold_out,0,
+2026-11-21T00:43:12+00:00,cay,Stingray Plushie,sold_out,0,
+2026-11-21T00:46:14+00:00,uni,Red Fox Plushie,sold_out,0,
+2026-11-21T00:52:20+00:00,can,Wolverine Plushie,restocked,2500,906
+2026-11-21T00:53:21+00:00,chi,Panda Plushie,restocked,2265,851
+2026-11-21T00:54:22+00:00,mex,Jaguar Plushie,restocked,2429,852
+2026-11-21T00:55:23+00:00,swi,Chamois Plushie,sold_out,0,
+2026-11-21T00:58:25+00:00,cay,Stingray Plushie,restocked,2500,913
+2026-11-21T01:01:28+00:00,uni,Red Fox Plushie,restocked,2431,914
+2026-11-21T01:02:29+00:00,uae,Camel Plushie,sold_out,0,
+2026-11-21T01:10:37+00:00,swi,Chamois Plushie,restocked,2444,913
+2026-11-21T01:16:42+00:00,uae,Camel Plushie,restocked,2482,853
+2026-11-21T01:23:48+00:00,sou,Lion Plushie,sold_out,0,
+2026-11-21T01:26:51+00:00,chi,Panda Plushie,sold_out,0,
+2026-11-21T01:28:53+00:00,arg,Monkey Plushie,sold_out,0,
+2026-11-21T01:35:59+00:00,mex,Jaguar Plushie,sold_out,0,
+2026-11-21T01:36:59+00:00,sou,Lion Plushie,restocked,2500,790
+2026-11-21T01:42:05+00:00,chi,Panda Plushie,restocked,2427,913
+2026-11-21T01:46:07+00:00,arg,Monkey Plushie,restocked,2350,1034
+2026-11-21T01:47:09+00:00,uni,Red Fox Plushie,sold_out,0,
+2026-11-21T01:50:12+00:00,mex,Jaguar Plushie,restocked,2500,853
+2026-11-21T01:50:12+00:00,cay,Stingray Plushie,sold_out,0,
+2026-11-21T01:59:20+00:00,can,Wolverine Plushie,sold_out,0,
+2026-11-21T02:03:25+00:00,uni,Red Fox Plushie,restocked,2402,976
+2026-11-21T02:03:25+00:00,swi,Chamois Plushie,sold_out,0,
+2026-11-21T02:05:26+00:00,uae,Camel Plushie,sold_out,0,
+2026-11-21T02:06:27+00:00,cay,Stingray Plushie,restocked,2385,975
+2026-11-21T02:07:27+00:00,sou,Lion Plushie,sold_out,0,
+2026-11-21T02:09:29+00:00,sou,Lion Plushie,restocked,828,
+2026-11-21T02:10:30+00:00,sou,Lion Plushie,sold_out,0,
+2026-11-21T02:14:34+00:00,can,Wolverine Plushie,restocked,2421,913
+2026-11-21T02:19:38+00:00,swi,Chamois Plushie,restocked,2482,972
+2026-11-21T02:20:39+00:00,chi,Panda Plushie,sold_out,0,
+2026-11-21T02:21:40+00:00,uae,Camel Plushie,restocked,2358,973
+2026-11-21T02:23:43+00:00,sou,Lion Plushie,restocked,2237,792
+2026-11-21T02:36:56+00:00,chi,Panda Plushie,restocked,2472,976
+2026-11-21T02:41:00+00:00,mex,Jaguar Plushie,sold_out,0,
+2026-11-21T02:47:05+00:00,cay,Stingray Plushie,sold_out,0,
+2026-11-21T02:52:10+00:00,arg,Monkey Plushie,sold_out,0,
+2026-11-21T02:53:11+00:00,uni,Red Fox Plushie,sold_out,0,
+2026-11-21T02:54:12+00:00,sou,Lion Plushie,sold_out,0,
+2026-11-21T02:59:17+00:00,mex,Jaguar Plushie,restocked,2345,1097
+2026-11-21T03:02:20+00:00,cay,Stingray Plushie,restocked,2435,914
+2026-11-21T03:07:25+00:00,arg,Monkey Plushie,restocked,2490,915
+2026-11-21T03:07:25+00:00,sou,Lion Plushie,restocked,2415,793
+2026-11-21T03:08:26+00:00,swi,Chamois Plushie,sold_out,0,
+2026-11-21T03:09:27+00:00,uae,Camel Plushie,sold_out,0,
+2026-11-21T03:10:27+00:00,uni,Red Fox Plushie,restocked,2440,1036
+2026-11-21T03:13:30+00:00,can,Wolverine Plushie,sold_out,0,
+2026-11-21T03:14:31+00:00,haw,Orchid,sold_out,0,
+2026-11-21T03:19:35+00:00,chi,Panda Plushie,sold_out,0,
+2026-11-21T03:23:38+00:00,uae,Camel Plushie,restocked,2448,851
+2026-11-21T03:24:39+00:00,swi,Chamois Plushie,restocked,2399,973
+2026-11-21T03:28:42+00:00,can,Wolverine Plushie,restocked,2500,911
+2026-11-21T03:33:47+00:00,chi,Panda Plushie,restocked,2500,851
+2026-11-21T03:47:59+00:00,mex,Jaguar Plushie,sold_out,0,
+2026-11-21T03:56:07+00:00,sou,Lion Plushie,sold_out,0,
+2026-11-21T03:57:08+00:00,cay,Stingray Plushie,sold_out,0,
+2026-11-21T04:02:11+00:00,mex,Jaguar Plushie,restocked,2428,851
+2026-11-21T04:06:15+00:00,uni,Red Fox Plushie,sold_out,0,
+2026-11-21T04:07:16+00:00,swi,Chamois Plushie,sold_out,0,
+2026-11-21T04:08:16+00:00,arg,Monkey Plushie,sold_out,0,
+2026-11-21T04:10:18+00:00,sou,Lion Plushie,restocked,2473,850
+2026-11-21T04:11:18+00:00,cay,Stingray Plushie,restocked,2500,850
+2026-11-21T04:12:19+00:00,chi,Panda Plushie,sold_out,0,
+2026-11-21T04:12:19+00:00,uae,Camel Plushie,sold_out,0,
+2026-11-21T04:18:25+00:00,haw,Orchid,restocked,9999,
+2026-11-21T04:22:27+00:00,uni,Red Fox Plushie,restocked,2351,972
+2026-11-21T04:23:29+00:00,swi,Chamois Plushie,restocked,2500,972
+2026-11-21T04:24:29+00:00,arg,Monkey Plushie,restocked,2451,972
+2026-11-21T04:27:32+00:00,chi,Panda Plushie,restocked,2307,913
+2026-11-21T04:27:32+00:00,uae,Camel Plushie,restocked,2477,913
+2026-11-21T04:51:53+00:00,mex,Jaguar Plushie,sold_out,0,
+2026-11-21T04:53:55+00:00,can,Wolverine Plushie,sold_out,0,
+2026-11-21T05:01:02+00:00,cay,Stingray Plushie,sold_out,0,
+2026-11-21T05:04:06+00:00,chi,Panda Plushie,sold_out,0,
+2026-11-21T05:05:07+00:00,swi,Chamois Plushie,sold_out,0,
+2026-11-21T05:09:11+00:00,mex,Jaguar Plushie,restocked,2463,1038
+2026-11-21T05:09:11+00:00,can,Wolverine Plushie,restocked,2472,915
+2026-11-21T05:12:14+00:00,sou,Lion Plushie,sold_out,0,
+2026-11-21T05:16:18+00:00,cay,Stingray Plushie,restocked,2427,915
+2026-11-21T05:19:20+00:00,uni,Red Fox Plushie,sold_out,0,
+2026-11-21T05:20:21+00:00,swi,Chamois Plushie,restocked,2500,913
+2026-11-21T05:20:21+00:00,chi,Panda Plushie,restocked,2446,974
+2026-11-21T05:22:23+00:00,arg,Monkey Plushie,sold_out,0,
+2026-11-21T05:26:26+00:00,uae,Camel Plushie,sold_out,0,
+2026-11-21T05:28:28+00:00,sou,Lion Plushie,restocked,2431,973
+2026-11-21T05:35:35+00:00,cay,Stingray Plushie,sold_out,0,
+2026-11-21T05:35:35+00:00,uni,Red Fox Plushie,restocked,2472,975
+2026-11-21T05:36:36+00:00,cay,Stingray Plushie,restocked,1398,
+2026-11-21T05:38:38+00:00,arg,Monkey Plushie,restocked,2464,974
+2026-11-21T05:43:43+00:00,uae,Camel Plushie,restocked,2495,1037
+2026-11-21T05:59:57+00:00,swi,Chamois Plushie,sold_out,0,
+2026-11-21T05:59:57+00:00,chi,Panda Plushie,sold_out,0,
+2026-11-21T06:03:00+00:00,sou,Lion Plushie,sold_out,0,
+2026-11-21T06:11:05+00:00,mex,Jaguar Plushie,sold_out,0,
+2026-11-21T06:14:06+00:00,swi,Chamois Plushie,restocked,2500,849
+2026-11-21T06:14:06+00:00,chi,Panda Plushie,restocked,2500,849
+2026-11-21T06:16:08+00:00,can,Wolverine Plushie,sold_out,0,
